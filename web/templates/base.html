@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block title %}Campaign Mailer{% endblock %}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#0d0f17;--bg2:#151825;--bg3:#1d2235;--bg4:#252a3d;--border:#2a2f45;--text:#dde2f0;--muted:#7880a0;--accent:#7c6fff;--accent2:#9d94ff;--green:#22c55e;--red:#ef4444;--yellow:#f59e0b;--blue:#3b82f6;--r:8px;--rl:12px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);font-size:14px;line-height:1.6;min-height:100vh}
+a{color:var(--accent2);text-decoration:none}a:hover{text-decoration:underline}
+.nav{background:var(--bg2);border-bottom:1px solid var(--border);padding:0 28px;display:flex;align-items:center;height:54px;gap:8px}
+.nav-brand{font-weight:700;font-size:15px;color:#fff;margin-right:16px;display:flex;align-items:center;gap:8px}
+.nav-link{padding:6px 12px;border-radius:6px;color:var(--muted);font-size:13px;transition:.15s;white-space:nowrap}
+.nav-link:hover,.nav-link.active{background:var(--bg3);color:var(--text);text-decoration:none}
+.nav-spacer{flex:1}
+.page{max-width:1280px;margin:0 auto;padding:28px 24px}
+.card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--rl);padding:20px}
+.card-title{font-weight:600;font-size:14px;color:#fff;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:var(--r);border:1px solid transparent;cursor:pointer;font-size:13px;font-weight:500;transition:.15s;white-space:nowrap}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#fff;border-color:var(--accent)}.btn-primary:hover:not(:disabled){background:var(--accent2)}
+.btn-success{background:#166534;color:#4ade80;border-color:#166534}.btn-success:hover:not(:disabled){background:#15803d}
+.btn-danger{background:#7f1d1d;color:#fca5a5;border-color:#7f1d1d}.btn-danger:hover:not(:disabled){background:#991b1b}
+.btn-ghost{background:transparent;color:var(--muted);border-color:var(--border)}.btn-ghost:hover:not(:disabled){background:var(--bg3);color:var(--text)}
+.btn-sm{padding:5px 10px;font-size:12px}.btn-xs{padding:3px 8px;font-size:11px}
+input,select,textarea{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);color:var(--text);padding:9px 13px;font-size:14px;outline:none;width:100%;transition:.15s;font-family:inherit}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);background:var(--bg4)}
+label{font-size:12px;color:var(--muted);margin-bottom:5px;display:block;font-weight:500}
+.fg{margin-bottom:14px}
+.badge{display:inline-flex;align-items:center;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600}
+.b-green{background:#14532d;color:#4ade80}.b-yellow{background:#431407;color:#fcd34d}
+.b-red{background:#450a0a;color:#fca5a5}.b-gray{background:var(--bg4);color:var(--muted)}
+.b-blue{background:#1e3a5f;color:#93c5fd}.b-purple{background:#2d1b69;color:#c4b5fd}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:8px 14px;border-bottom:1px solid var(--border);font-weight:500}
+td{padding:11px 14px;border-bottom:1px solid var(--border);font-size:13px;vertical-align:middle}
+tr:last-child td{border-bottom:none}tr:hover td{background:var(--bg3)}
+.prog-wrap{height:6px;background:var(--bg3);border-radius:99px;overflow:hidden;margin:8px 0}
+.prog-fill{height:100%;border-radius:99px;transition:width .5s,background .5s}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:18px}
+.stat{background:var(--bg3);border-radius:var(--r);padding:12px 14px;border:1px solid var(--border)}
+.stat-lbl{font-size:11px;color:var(--muted);margin-bottom:4px;font-weight:500;text-transform:uppercase;letter-spacing:.04em}
+.stat-val{font-size:22px;font-weight:700;color:#fff;line-height:1}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:3px}
+.spam-hits{margin-top:10px;max-height:170px;overflow-y:auto;font-size:12px}
+.spam-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border)}
+.flex{display:flex}.gap-2{gap:8px}.gap-3{gap:12px}.items-center{align-items:center}
+.flex-1{flex:1}.jbet{justify-content:space-between}
+.mt-2{margin-top:8px}.mt-3{margin-top:14px}.mb-2{margin-bottom:8px}.mb-3{margin-bottom:14px}
+.text-muted{color:var(--muted)}.text-sm{font-size:12px}.text-xs{font-size:11px}
+.text-green{color:var(--green)}.text-red{color:var(--red)}.text-yellow{color:var(--yellow)}
+.w-full{width:100%}
+hr{border:none;border-top:1px solid var(--border);margin:16px 0}
+#toast{position:fixed;bottom:24px;right:24px;background:var(--bg4);color:#fff;padding:12px 20px;border-radius:var(--r);border:1px solid var(--border);font-size:13px;opacity:0;transition:opacity .25s;z-index:999;max-width:340px;pointer-events:none}
+#toast.show{opacity:1}#toast.ok{background:#14532d;border-color:#166534;color:#4ade80}
+#toast.err{background:#450a0a;border-color:#7f1d1d;color:#fca5a5}
+.tabs{display:flex;border-bottom:1px solid var(--border)}
+.tab{padding:10px 18px;background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:13px;font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;transition:.15s}
+.tab.active{color:var(--text);border-bottom-color:var(--accent)}.tab:hover:not(.active){color:var(--text)}
+</style>
+</head>
+<body>
+<nav class="nav">
+  <div class="nav-brand">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent2)" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+    Campaign Mailer
+  </div>
+  <a href="/" class="nav-link {% if request.path=='/' %}active{% endif %}">Campaigns</a>
+  <a href="/settings" class="nav-link {% if request.path=='/settings' %}active{% endif %}">Settings</a>
+  <div class="nav-spacer"></div>
+  <a href="/logout" class="nav-link text-sm">Log out</a>
+</nav>
+<div class="page">{% block content %}{% endblock %}</div>
+<div id="toast"></div>
+<script>
+function toast(msg,type='ok'){const t=document.getElementById('toast');t.textContent=msg;t.className='show '+(type==='ok'?'ok':'err');setTimeout(()=>t.className='',3200)}
+async function api(url,data,method){method=method||'POST';const o={method,headers:{'Content-Type':'application/json'}};if(data)o.body=JSON.stringify(data);const r=await fetch(url,o);return r.json()}
+function fmtDate(s){if(!s)return'—';try{return new Date(s).toLocaleString('en',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}catch{return s}}
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

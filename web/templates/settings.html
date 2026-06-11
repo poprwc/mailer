@@ -1,0 +1,94 @@
+{% extends "base.html" %}
+{% block title %}Settings — Campaign Mailer{% endblock %}
+{% block content %}
+<h1 style="font-size:20px;font-weight:700;color:#fff;margin-bottom:20px">Settings</h1>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+<div>
+  <div class="card mb-3">
+    <div class="card-title">📧 SMTP Server</div>
+    <div class="fg"><label>SMTP Host</label><input id="smtp_host" value="{{ cfg.smtp_host }}" placeholder="smtp.gmail.com"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="fg"><label>Port</label><input type="number" id="smtp_port" value="{{ cfg.smtp_port }}" placeholder="587"></div>
+      <div class="fg"><label>Security</label><select id="smtp_sec"><option value="starttls" selected>STARTTLS (587)</option><option value="ssl">SSL (465)</option></select></div>
+    </div>
+    <div class="fg"><label>Username / Email</label><input type="email" id="smtp_user" value="{{ cfg.smtp_user }}" placeholder="you@gmail.com"></div>
+    <div class="fg"><label>Password / App Password</label><input type="password" id="smtp_pass" value="{{ cfg.smtp_pass }}" placeholder="••••••••••••••••"></div>
+    <hr>
+    <div class="fg"><label>From email address</label><input type="email" id="smtp_from" value="{{ cfg.smtp_from }}" placeholder="newsletter@yourdomain.com"></div>
+    <div class="fg"><label>From name</label><input id="smtp_from_name" value="{{ cfg.smtp_from_name }}" placeholder="My Newsletter"></div>
+    <div class="flex gap-2">
+      <button class="btn btn-primary" onclick="saveAll()">Save</button>
+      <button class="btn btn-ghost" onclick="testSmtp()" id="test-btn">Test connection</button>
+    </div>
+    <div id="smtp-res" style="margin-top:10px;font-size:13px"></div>
+  </div>
+  <div class="card">
+    <div class="card-title">🔒 Panel access</div>
+    <div class="fg"><label>Username</label><input id="login_user" value="{{ cfg.login_user }}"></div>
+    <div class="fg"><label>Password</label><input type="password" id="login_pass" value="{{ cfg.login_pass }}"></div>
+    <button class="btn btn-primary" onclick="saveAll()">Save</button>
+    <p class="text-xs text-muted mt-2">⚠ Change the default password before sharing this URL.</p>
+  </div>
+</div>
+<div>
+  <div class="card mb-3">
+    <div class="card-title">⏱ Send queue</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="fg"><label>Daily limit</label><input type="number" id="daily_limit" value="{{ cfg.daily_limit }}" min="1" oninput="calcRate()"><span class="text-xs text-muted mt-2" style="display:block">emails per day</span></div>
+      <div class="fg"><label>Interval</label><input type="number" id="interval_minutes" value="{{ cfg.interval_minutes }}" min="1" max="60" oninput="calcRate()"><span class="text-xs text-muted mt-2" style="display:block">minutes between emails</span></div>
+    </div>
+    <div style="background:var(--bg3);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--muted);margin-bottom:14px">
+      📊 <strong id="calc-rate" style="color:#fff">—</strong>
+    </div>
+    <button class="btn btn-primary" onclick="saveAll()">Save</button>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-title">⏰ cron-job.org setup</div>
+    <p class="text-sm text-muted mb-3">Automatic sending is triggered by <strong style="color:#fff">cron-job.org</strong> (free).<br>Register at <a href="https://cron-job.org" target="_blank">cron-job.org</a> and create a job with this URL:</p>
+    <div style="background:var(--bg3);border-radius:8px;padding:10px 14px;font-family:monospace;font-size:12px;word-break:break-all;color:var(--accent2)" id="cron-url">Loading…</div>
+    <div class="flex gap-2 mt-2"><button class="btn btn-ghost btn-sm" onclick="copyCronUrl()">📋 Copy URL</button></div>
+    <div style="margin-top:12px;font-size:12px;color:var(--muted)">
+      <strong style="color:#fff">Settings in cron-job.org:</strong><br>
+      • URL: the one above<br>
+      • Schedule: Every 5 minutes<br>
+      • Request method: GET<br>
+      • Enable: ✓
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🌐 App public URL</div>
+    <div class="fg"><label>App URL (for tracking + unsubscribe links)</label><input id="app_url" value="{{ cfg.app_url }}" placeholder="https://poprwc.pythonanywhere.com"></div>
+    <p class="text-xs text-muted mb-3">Used for the open tracking pixel and unsubscribe links in every email.</p>
+    <button class="btn btn-primary" onclick="saveAll()">Save</button>
+  </div>
+</div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+fetch('/api/settings/cron-url').then(r=>r.json()).then(d=>{document.getElementById('cron-url').textContent=d.url;});
+function copyCronUrl(){navigator.clipboard.writeText(document.getElementById('cron-url').textContent).then(()=>toast('URL copied ✓'));}
+function calcRate(){
+  const lim=parseInt(document.getElementById('daily_limit').value)||300;
+  const inv=parseInt(document.getElementById('interval_minutes').value)||5;
+  const possible=Math.floor(24*60/inv),actual=Math.min(lim,possible);
+  document.getElementById('calc-rate').textContent=`${actual} emails/day • 1 every ${inv} min • max possible: ${possible}/day`;
+}
+calcRate();
+async function saveAll(){
+  const fields=['smtp_host','smtp_port','smtp_user','smtp_pass','smtp_from','smtp_from_name','daily_limit','interval_minutes','login_user','login_pass','app_url'];
+  const d={};fields.forEach(f=>{const el=document.getElementById(f);if(el)d[f]=el.value;});
+  const r=await api('/api/settings/save',d);
+  if(r.ok){toast('Settings saved ✓');fetch('/api/settings/cron-url').then(r=>r.json()).then(d=>{document.getElementById('cron-url').textContent=d.url;});}
+  else toast('Error saving','err');
+}
+async function testSmtp(){
+  const btn=document.getElementById('test-btn');btn.disabled=true;btn.textContent='Testing...';
+  const r=await api('/api/settings/test-smtp',{});
+  const el=document.getElementById('smtp-res');el.style.color=r.ok?'var(--green)':'var(--red)';el.textContent=(r.ok?'✓ ':'✗ ')+r.msg;
+  btn.disabled=false;btn.textContent='Test connection';
+}
+</script>
+{% endblock %}

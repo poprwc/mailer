@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+{% block title %}Campaigns — Campaign Mailer{% endblock %}
+{% block content %}
+<div class="flex items-center jbet mb-3">
+  <div>
+    <h1 style="font-size:20px;font-weight:700;color:#fff">Campaigns</h1>
+    <div class="text-xs text-muted mt-2">
+      Today: <strong style="color:{% if sent_today >= daily_limit %}var(--red){% elif sent_today > daily_limit*0.8 %}var(--yellow){% else %}var(--green){% endif %}">{{ sent_today }}</strong>
+      / {{ daily_limit }} emails
+      {% if sent_today >= daily_limit %}
+        <span class="badge b-yellow" style="margin-left:6px">⏳ Daily limit reached — resumes at midnight UTC</span>
+      {% endif %}
+    </div>
+  </div>
+  <a href="/campaign/new" class="btn btn-primary">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+    New Campaign
+  </a>
+</div>
+
+{% if campaigns %}
+<div class="card" style="padding:0;overflow:hidden">
+  <table>
+    <thead>
+      <tr>
+        <th>Campaign</th>
+        <th>Subject</th>
+        <th>Progress</th>
+        <th>Status</th>
+        <th>Created</th>
+        <th style="text-align:right">Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in campaigns %}
+      {# c[0]=id c[1]=name c[2]=subject c[3]=status c[4]=created_at c[5]=total c[6]=sent c[7]=pending #}
+      <tr onclick="window.location='/campaign/{{ c[0] }}'" style="cursor:pointer">
+        <td style="font-weight:600;color:#fff">{{ c[1] }}</td>
+        <td class="text-muted">{{ c[2][:55] }}{% if c[2]|length > 55 %}…{% endif %}</td>
+        <td style="min-width:120px">
+          {% if c[5] %}
+            <div style="font-size:11px;color:var(--muted);margin-bottom:3px">{{ c[6] }} / {{ c[5] }}</div>
+            <div class="prog-wrap" style="margin:0">
+              <div class="prog-fill" style="width:{{ ((c[6]/c[5])*100)|round }}%;background:{% if c[3]=='done' %}var(--green){% elif c[3]=='sending' %}var(--accent){% else %}var(--bg4){% endif %}"></div>
+            </div>
+          {% else %}
+            <span class="text-xs text-muted">No emails</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if c[3]=='draft' %}<span class="badge b-gray">Draft</span>
+          {% elif c[3]=='sending' %}
+            {% if sent_today >= daily_limit %}
+              <span class="badge b-yellow">⏳ Daily limit</span>
+            {% else %}
+              <span class="badge b-green">▶ Sending</span>
+            {% endif %}
+          {% elif c[3]=='paused' %}<span class="badge b-yellow">⏸ Paused</span>
+          {% elif c[3]=='done' %}<span class="badge b-blue">✓ Done</span>
+          {% else %}<span class="badge b-gray">{{ c[3] }}</span>{% endif %}
+        </td>
+        <td class="text-muted text-sm">{{ c[4]|string|truncate(16,True,'') }}</td>
+        <td style="text-align:right" onclick="event.stopPropagation()">
+          <div class="flex gap-2" style="justify-content:flex-end">
+            <a href="/campaign/{{ c[0] }}" class="btn btn-ghost btn-xs">Open</a>
+            {% if c[3] == 'sending' %}
+              <button class="btn btn-ghost btn-xs" onclick="pauseCampaign({{ c[0] }},this)">⏸ Pause</button>
+            {% elif c[3] in ['draft','paused'] %}
+              {% if active_id and active_id != c[0] %}
+                <button class="btn btn-ghost btn-xs" disabled title="Another campaign is sending">▶ Send</button>
+              {% else %}
+                <button class="btn btn-success btn-xs" onclick="startCampaign({{ c[0] }},this)">▶ Send</button>
+              {% endif %}
+            {% endif %}
+            <button class="btn btn-danger btn-xs" onclick="delCampaign({{ c[0] }},this)">Delete</button>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card" style="text-align:center;padding:56px 20px">
+  <div style="font-size:40px;margin-bottom:12px">📭</div>
+  <p class="text-muted" style="margin-bottom:18px">No campaigns yet</p>
+  <a href="/campaign/new" class="btn btn-primary">Create your first campaign</a>
+</div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+async function startCampaign(cid, btn) {
+  const r = await api('/api/queue/start', {campaign_id: cid});
+  if(r.ok) { toast('Campaign started ▶'); setTimeout(()=>location.reload(), 800); }
+  else toast(r.error || 'Error', 'err');
+}
+async function pauseCampaign(cid, btn) {
+  const r = await api('/api/queue/stop', {campaign_id: cid});
+  if(r.ok) { toast('Campaign paused ⏸'); setTimeout(()=>location.reload(), 800); }
+  else toast(r.error || 'Error', 'err');
+}
+async function delCampaign(cid, btn) {
+  if(!confirm('Delete this campaign and all its data?')) return;
+  const r = await api('/api/campaign/delete/'+cid);
+  if(r.ok) { btn.closest('tr').remove(); toast('Campaign deleted'); }
+  else toast(r.error || 'Error', 'err');
+}
+</script>
+{% endblock %}

@@ -1,0 +1,343 @@
+{% extends "base.html" %}
+{% block title %}{{ campaign[1] if campaign else 'New Campaign' }} — Campaign Mailer{% endblock %}
+{% block content %}
+
+{% if campaign %}
+{# ── Stats row ── #}
+<div class="flex items-center gap-3 mb-3" style="flex-wrap:wrap">
+  <div>
+    <h1 style="font-size:18px;font-weight:700;color:#fff">{{ campaign[1] }}</h1>
+    <div class="text-xs text-muted">
+      Today: <strong id="st-today" style="color:{% if sent_today >= daily_limit %}var(--red){% elif sent_today > daily_limit*0.8 %}var(--yellow){% else %}var(--green){% endif %}">{{ sent_today }}</strong>
+      / <span id="st-limit">{{ daily_limit }}</span> emails
+    </div>
+  </div>
+  <div id="camp-status-badge" style="margin-left:4px">
+    {% if campaign[7]=='draft' %}<span class="badge b-gray">Draft</span>
+    {% elif campaign[7]=='sending' %}<span class="badge b-green">▶ Sending</span>
+    {% elif campaign[7]=='paused' %}<span class="badge b-yellow">⏸ Paused</span>
+    {% elif campaign[7]=='done' %}<span class="badge b-blue">✓ Done</span>
+    {% else %}<span class="badge b-gray">{{ campaign[7] }}</span>{% endif %}
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+    <a href="/campaign/{{ campaign[0] }}/visual" class="btn btn-ghost btn-sm">🎨 Visual Editor</a>
+    <button id="btn-start" class="btn btn-success btn-sm" onclick="startQueue()"
+      {% if campaign[7]=='sending' or campaign[7]=='done' %}style="display:none"{% endif %}
+      {% if active_id and active_id != campaign[0] %}disabled title="Pause the active campaign first"{% endif %}>
+      ▶ Start sending
+    </button>
+    <button id="btn-stop" class="btn btn-ghost btn-sm" onclick="stopQueue()"
+      {% if campaign[7]!='sending' %}style="display:none"{% endif %}>
+      ⏸ Pause
+    </button>
+  </div>
+</div>
+
+<div class="stats-grid mb-3" id="stats-grid">
+  <div class="stat"><div class="stat-lbl">Total</div><div class="stat-val" id="st-total">{{ stats.total }}</div></div>
+  <div class="stat"><div class="stat-lbl">Pending</div><div class="stat-val" id="st-pending" style="color:var(--yellow)">{{ stats.pending }}</div></div>
+  <div class="stat"><div class="stat-lbl">Sent</div><div class="stat-val" id="st-sent" style="color:var(--green)">{{ stats.sent }}</div></div>
+  <div class="stat"><div class="stat-lbl">Failed</div><div class="stat-val" id="st-failed" style="color:var(--red)">{{ stats.failed }}</div></div>
+  <div class="stat"><div class="stat-lbl">Opens</div><div class="stat-val" id="st-opens" style="color:var(--blue)">{{ stats.unique_opens }}</div></div>
+  <div class="stat"><div class="stat-lbl">Unsubs</div><div class="stat-val" id="st-unsubs" style="color:var(--muted)">{{ stats.unsubs }}</div></div>
+</div>
+
+<div class="prog-wrap mb-3">
+  <div class="prog-fill" id="prog-fill"
+    style="width:{% if stats.total %}{{ ((stats.sent/stats.total)*100)|round }}{% else %}0{% endif %}%;
+           background:{% if campaign[7]=='done' %}var(--green){% else %}var(--accent){% endif %}">
+  </div>
+</div>
+{% endif %}
+
+<div style="display:grid;grid-template-columns:1fr 360px;gap:16px">
+
+{# ── LEFT: Campaign form + email list ── #}
+<div>
+  {# Name + subject #}
+  <div class="card mb-3">
+    <div class="fg">
+      <label>Campaign name</label>
+      <input type="text" id="camp-name" value="{{ campaign[1] if campaign else '' }}" placeholder="e.g. June Newsletter">
+    </div>
+    <div class="fg" style="margin-bottom:0">
+      <label>Email subject</label>
+      <input type="text" id="camp-subject" value="{{ campaign[2] if campaign else '' }}" placeholder="e.g. Exclusive news for you!">
+    </div>
+  </div>
+
+  {# HTML Body #}
+  <div class="card mb-3">
+    <div class="card-title">
+      📄 HTML Body
+      <span class="text-xs text-muted" style="font-weight:400;margin-left:4px">or use the 🎨 Visual Editor above</span>
+    </div>
+    <div class="fg" style="margin-bottom:0">
+      <textarea id="camp-html" rows="10" style="font-family:monospace;font-size:12px;resize:vertical"
+        placeholder="<p>Your email HTML here…</p>">{{ campaign[3] if campaign else '' }}</textarea>
+    </div>
+  </div>
+
+  {# Text Body #}
+  <div class="card mb-3">
+    <div class="card-title">📝 Plain text body</div>
+    <div class="fg" style="margin-bottom:0">
+      <textarea id="camp-text" rows="5" style="font-family:monospace;font-size:12px;resize:vertical"
+        placeholder="Plain text version of the email (for clients that don't support HTML)">{{ campaign[4] if campaign else '' }}</textarea>
+    </div>
+  </div>
+
+  <div class="flex gap-2 mb-3">
+    {% if campaign %}
+      <button class="btn btn-primary" onclick="saveCampaign()">💾 Save</button>
+    {% else %}
+      <button class="btn btn-primary" onclick="createCampaign()">Create campaign</button>
+    {% endif %}
+  </div>
+
+  {% if campaign %}
+  {# Email list #}
+  <div class="card mb-3">
+    <div class="card-title flex jbet">
+      <span>📬 Email list</span>
+      <div class="flex gap-2">
+        <button class="btn btn-ghost btn-xs" onclick="toggleImport()">+ Import</button>
+        <button class="btn btn-danger btn-xs" onclick="deleteAllEmails()">🗑 Clear</button>
+      </div>
+    </div>
+    <div id="import-box" style="display:none;margin-bottom:12px">
+      <label>Paste emails (one per line, or email,name)</label>
+      <textarea id="import-ta" rows="6" style="font-family:monospace;font-size:12px;resize:vertical"
+        placeholder="user@example.com&#10;another@example.com,John"></textarea>
+      <button class="btn btn-primary btn-sm mt-2" onclick="importEmails()">Import</button>
+    </div>
+    <div id="email-list-wrap">
+      <table>
+        <thead><tr><th>Email</th><th>Status</th><th>Sent at</th></tr></thead>
+        <tbody id="email-list-body"><tr><td colspan="3" class="text-muted text-sm">Loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="email-pagination" class="flex gap-2 mt-2" style="justify-content:flex-end"></div>
+  </div>
+
+  {# Send log #}
+  <div class="card">
+    <div class="card-title">📋 Send log</div>
+    <table>
+      <thead><tr><th>Email</th><th>Status</th><th>Time</th><th>Error</th></tr></thead>
+      <tbody id="log-body"><tr><td colspan="4" class="text-muted text-sm">Loading…</td></tr></tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>
+
+{# ── RIGHT: Spam score + settings ── #}
+<div>
+  <div class="card mb-3">
+    <div class="card-title">🛡 Spam score</div>
+    <div class="flex items-center gap-3 mb-2">
+      <div style="font-size:32px;font-weight:800;color:#fff" id="spam-score">—</div>
+      <div style="flex:1">
+        <div class="prog-wrap"><div class="prog-fill" id="spam-bar" style="width:0%;background:var(--green)"></div></div>
+        <div class="text-xs text-muted mt-2" id="spam-label">Type subject and body to check</div>
+      </div>
+    </div>
+    <div id="spam-tips" class="spam-hits"></div>
+  </div>
+
+  {% if campaign %}
+  <div class="card">
+    <div class="card-title">⚙ Queue</div>
+    <div class="stat mb-2" style="background:transparent;border:none;padding:0">
+      <div class="stat-lbl">Interval</div>
+      <div class="stat-val text-sm" style="font-size:14px">1 email every {{ get_setting('interval_minutes','5') }} min</div>
+    </div>
+    <div class="stat mb-2" style="background:transparent;border:none;padding:0">
+      <div class="stat-lbl">Daily limit</div>
+      <div class="stat-val text-sm" style="font-size:14px">{{ get_setting('daily_limit','300') }} emails/day (global)</div>
+    </div>
+    <a href="/settings" class="btn btn-ghost btn-sm w-full" style="justify-content:center">⚙ Change settings</a>
+  </div>
+  {% endif %}
+</div>
+
+</div>{# end grid #}
+
+{% endblock %}
+{% block scripts %}
+{% if campaign %}
+<script>
+const CID = {{ campaign[0] }};
+let emailPage = 1;
+
+// ── Save ─────────────────────────────────────────────────
+async function saveCampaign() {
+  const r = await api(`/campaign/${CID}/save`, {
+    name:      document.getElementById('camp-name').value,
+    subject:   document.getElementById('camp-subject').value,
+    html_body: document.getElementById('camp-html').value,
+    text_body: document.getElementById('camp-text').value,
+  });
+  if(r.ok) toast('Saved ✓'); else toast('Error saving','err');
+  checkSpam();
+}
+
+// ── Queue ────────────────────────────────────────────────
+async function startQueue() {
+  const r = await api('/api/queue/start', {campaign_id: CID});
+  if(r.ok) { toast('Sending started ▶'); updateStats(); }
+  else toast(r.error || 'Error','err');
+}
+async function stopQueue() {
+  const r = await api('/api/queue/stop', {campaign_id: CID});
+  if(r.ok) { toast('Paused ⏸'); updateStats(); }
+  else toast(r.error || 'Error','err');
+}
+
+// ── Stats polling ────────────────────────────────────────
+async function updateStats() {
+  const r = await fetch(`/api/queue/status/${CID}`).then(x=>x.json());
+  document.getElementById('st-total').textContent   = r.total   ?? 0;
+  document.getElementById('st-pending').textContent = r.pending ?? 0;
+  document.getElementById('st-sent').textContent    = r.sent    ?? 0;
+  document.getElementById('st-failed').textContent  = r.failed  ?? 0;
+  document.getElementById('st-opens').textContent   = r.unique_opens ?? 0;
+  document.getElementById('st-unsubs').textContent  = r.unsubs  ?? 0;
+  const pct = r.total ? (r.sent/r.total*100).toFixed(1) : 0;
+  document.getElementById('prog-fill').style.width = pct + '%';
+
+  const today = document.getElementById('st-today');
+  if(today) {
+    today.textContent = r.sent_today;
+    today.style.color = r.sent_today >= r.daily_limit ? 'var(--red)'
+                      : r.sent_today > r.daily_limit*0.8 ? 'var(--yellow)' : 'var(--green)';
+  }
+
+  const running = r.campaign_status === 'sending';
+  const limitHit = r.campaign_status === 'daily_limit';
+  document.getElementById('btn-start').style.display = (running||r.campaign_status==='done') ? 'none' : '';
+  document.getElementById('btn-stop').style.display  = running ? '' : 'none';
+
+  const bd = document.getElementById('camp-status-badge');
+  if(r.campaign_status==='sending')      bd.innerHTML = '<span class="badge b-green">▶ Sending</span>';
+  else if(r.campaign_status==='daily_limit') bd.innerHTML = '<span class="badge b-yellow">⏳ Daily limit</span>';
+  else if(r.campaign_status==='paused')  bd.innerHTML = '<span class="badge b-yellow">⏸ Paused</span>';
+  else if(r.campaign_status==='done')    bd.innerHTML = '<span class="badge b-blue">✓ Done</span>';
+  else                                   bd.innerHTML = '<span class="badge b-gray">Draft</span>';
+
+  // Deshabilitar Start si otra campaña está activa
+  const btnStart = document.getElementById('btn-start');
+  if(r.active_id && r.active_id != CID) {
+    btnStart.disabled = true;
+    btnStart.title = 'Pause the active campaign first';
+  } else {
+    btnStart.disabled = false;
+    btnStart.title = '';
+  }
+}
+
+// ── Email list ───────────────────────────────────────────
+async function loadEmails(page) {
+  page = page || emailPage;
+  const r = await fetch(`/api/campaign/${CID}/emails?page=${page}&limit=50`).then(x=>x.json());
+  const tbody = document.getElementById('email-list-body');
+  if(!r.length){ tbody.innerHTML='<tr><td colspan="3" class="text-muted text-sm">No emails imported yet</td></tr>'; return; }
+  tbody.innerHTML = r.map(e=>`
+    <tr>
+      <td class="text-sm">${e.email}</td>
+      <td><span class="badge ${e.status==='sent'?'b-green':e.status==='failed'?'b-red':e.status==='unsub'?'b-gray':'b-yellow'}">${e.status}</span></td>
+      <td class="text-xs text-muted">${fmtDate(e.sent_at)}</td>
+    </tr>`).join('');
+}
+
+async function loadLogs() {
+  const r = await fetch(`/api/logs/${CID}`).then(x=>x.json());
+  const tbody = document.getElementById('log-body');
+  if(!r.length){ tbody.innerHTML='<tr><td colspan="4" class="text-muted text-sm">No logs yet</td></tr>'; return; }
+  tbody.innerHTML = r.map(e=>`
+    <tr>
+      <td class="text-sm">${e.email}</td>
+      <td><span class="badge ${e.status==='sent'?'b-green':'b-red'}">${e.status}</span></td>
+      <td class="text-xs text-muted">${fmtDate(e.timestamp)}</td>
+      <td class="text-xs text-muted">${e.error||'—'}</td>
+    </tr>`).join('');
+}
+
+// ── Import ───────────────────────────────────────────────
+function toggleImport(){ const b=document.getElementById('import-box'); b.style.display=b.style.display==='none'?'':'none'; }
+async function importEmails() {
+  const emails = document.getElementById('import-ta').value;
+  const r = await api(`/api/campaign/${CID}/emails/import`, {emails});
+  if(r.ok){ toast(`Imported ${r.inserted} emails (${r.skipped} skipped)`); loadEmails(); }
+  else toast(r.error||'Error','err');
+}
+async function deleteAllEmails() {
+  if(!confirm('Delete all emails from this campaign?')) return;
+  const r = await api(`/api/campaign/${CID}/emails/delete-all`);
+  if(r.ok){ toast('Email list cleared'); loadEmails(); updateStats(); }
+}
+
+// ── Spam score ───────────────────────────────────────────
+let spamTimer;
+function checkSpam() {
+  clearTimeout(spamTimer);
+  spamTimer = setTimeout(async ()=>{
+    const r = await api('/api/spam-score', {
+      subject:   document.getElementById('camp-subject').value,
+      html_body: document.getElementById('camp-html').value,
+      text_body: document.getElementById('camp-text').value,
+    });
+    document.getElementById('spam-score').textContent = r.score;
+    const bar = document.getElementById('spam-bar');
+    bar.style.width = (r.score/10*100)+'%';
+    bar.style.background = r.score<3?'var(--green)':r.score<6?'var(--yellow)':'var(--red)';
+    document.getElementById('spam-label').textContent =
+      r.score<3?'✓ Good — low spam risk':r.score<6?'⚠ Moderate — review tips':'✗ High — likely to be filtered';
+    const tips = document.getElementById('spam-tips');
+    tips.innerHTML = r.tips.map(t=>`<div class="spam-row"><span>${t}</span></div>`).join('');
+  }, 600);
+}
+
+// ── Init ─────────────────────────────────────────────────
+document.getElementById('camp-subject').addEventListener('input', checkSpam);
+document.getElementById('camp-html').addEventListener('input', checkSpam);
+document.getElementById('camp-text').addEventListener('input', checkSpam);
+
+loadEmails(); loadLogs(); updateStats();
+setInterval(updateStats, 20000);
+setInterval(()=>{ loadEmails(); loadLogs(); }, 30000);
+checkSpam();
+</script>
+{% else %}
+<script>
+async function createCampaign() {
+  const name    = document.getElementById('camp-name').value.trim();
+  const subject = document.getElementById('camp-subject').value.trim();
+  if(!name){ toast('Campaign name is required','err'); return; }
+  const form = document.createElement('form');
+  form.method = 'POST'; form.action = '/campaign/new';
+  [['name',name],['subject',subject]].forEach(([k,v])=>{
+    const i=document.createElement('input'); i.name=k; i.value=v; form.appendChild(i);
+  });
+  document.body.appendChild(form); form.submit();
+}
+let spamTimer;
+function checkSpam() {
+  clearTimeout(spamTimer);
+  spamTimer = setTimeout(async ()=>{
+    const r = await api('/api/spam-score', {
+      subject: document.getElementById('camp-subject').value,
+      html_body: document.getElementById('camp-html').value,
+    });
+    document.getElementById('spam-score').textContent = r.score;
+    const bar = document.getElementById('spam-bar');
+    bar.style.width=(r.score/10*100)+'%';
+    bar.style.background=r.score<3?'var(--green)':r.score<6?'var(--yellow)':'var(--red)';
+    document.getElementById('spam-label').textContent=r.score<3?'✓ Good':r.score<6?'⚠ Moderate':'✗ High risk';
+  }, 600);
+}
+document.getElementById('camp-subject').addEventListener('input', checkSpam);
+document.getElementById('camp-html').addEventListener('input', checkSpam);
+</script>
+{% endif %}
+{% endblock %}

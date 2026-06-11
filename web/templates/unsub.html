@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% if done %}Unsubscribed{% else %}Confirm Unsubscribe{% endif %}</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0d0f17;color:#dde2f0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.box{background:#151825;border:1px solid #2a2f45;border-radius:14px;padding:44px 40px;max-width:420px;width:100%;text-align:center}
+.icon{font-size:48px;margin-bottom:16px}
+h2{font-size:20px;font-weight:700;color:#fff;margin-bottom:10px}
+p{color:#7880a0;font-size:14px;line-height:1.7;margin-bottom:20px}
+.email{color:#dde2f0;font-weight:600}
+.btn{display:inline-block;background:#7c6fff;color:#fff;border:none;border-radius:8px;padding:11px 28px;font-size:14px;font-weight:600;cursor:pointer;text-decoration:none;transition:.15s}
+.btn:hover{background:#9d94ff}
+.btn-ghost{background:transparent;color:#7880a0;border:1px solid #2a2f45;margin-left:8px}
+.btn-ghost:hover{background:#1d2235;color:#dde2f0}
+</style>
+</head>
+<body>
+<div class="box">
+{% if done %}
+  <div class="icon">✅</div>
+  <h2 style="color:#4ade80">Successfully Unsubscribed</h2>
+  <p><span class="email">{{ email }}</span> has been removed from our list. You will not receive any more emails from us.</p>
+{% else %}
+  <div class="icon">📧</div>
+  <h2>Unsubscribe?</h2>
+  <p><span class="email">{{ email }}</span> will be removed from our mailing list.</p>
+  <form method="POST">
+    <button class="btn" type="submit">Yes, unsubscribe me</button>
+    <a href="/" class="btn btn-ghost">Cancel</a>
+  </form>
+{% endif %}
+</div>
+</body>
+</html>
