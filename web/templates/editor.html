@@ -111,10 +111,17 @@
       </div>
     </div>
     <div id="import-box" style="display:none;margin-bottom:12px">
-      <label>Paste emails (one per line, or email,name)</label>
+      <div class="fg">
+        <label>Upload CSV / Excel file (.csv, .xlsx, .xls)</label>
+        <input type="file" id="import-file" accept=".csv,.xlsx,.xls" onchange="handleFileImport(event)">
+        <div class="text-xs text-muted mt-2">First column = email, second column (optional) = name. First row can be a header — it will be skipped automatically if it doesn't look like an email.</div>
+      </div>
+      <hr style="margin:14px 0">
+      <label>Or paste emails (one per line, or email,name)</label>
       <textarea id="import-ta" rows="6" style="font-family:monospace;font-size:12px;resize:vertical"
         placeholder="user@example.com&#10;another@example.com,John"></textarea>
-      <button class="btn btn-primary btn-sm mt-2" onclick="importEmails()">Import</button>
+      <button class="btn btn-primary btn-sm mt-2" onclick="importEmails()">Import pasted list</button>
+      <div id="file-import-status" class="text-xs mt-2"></div>
     </div>
     <div id="email-list-wrap">
       <table>
@@ -123,6 +130,19 @@
       </table>
     </div>
     <div id="email-pagination" class="flex gap-2 mt-2" style="justify-content:flex-end"></div>
+  </div>
+
+  {# Bounces — agrupados por hard/soft, con opción de eliminarlos de la lista #}
+  <div class="card mb-3" id="bounces-card" style="display:none">
+    <div class="card-title flex jbet">
+      <span>⚠ Bounces</span>
+      <span class="text-xs text-muted" id="bounces-summary"></span>
+    </div>
+    <div class="text-xs text-muted mb-2">
+      <strong>Hard bounces</strong>: invalid/non-existent address — recommended to remove.
+      <strong>Soft bounces</strong>: temporary failure (mailbox full, server busy) — may succeed later.
+    </div>
+    <div id="bounces-body"></div>
   </div>
 
   {# Send log #}
@@ -171,6 +191,7 @@
 {% endblock %}
 {% block scripts %}
 {% if campaign %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const CID = {{ campaign[0] }};
 let emailPage = 1;
@@ -268,6 +289,52 @@ async function loadLogs() {
     </tr>`).join('');
 }
 
+// ── Bounces ──────────────────────────────────────────────
+async function loadBounces() {
+  const r = await fetch(`/api/campaign/${CID}/bounces`).then(x=>x.json());
+  const card = document.getElementById('bounces-card');
+  const body = document.getElementById('bounces-body');
+  const summary = document.getElementById('bounces-summary');
+
+  if(!r.ok || r.total === 0) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  summary.textContent = `${r.hard_count} hard · ${r.soft_count} soft`;
+
+  function section(title, list, type, badgeClass) {
+    if(!list.length) return '';
+    const rows = list.map(e => `
+      <tr>
+        <td class="text-sm">${e.email}</td>
+        <td class="text-xs text-muted">${e.error || '—'}</td>
+      </tr>`).join('');
+    return `
+      <div class="mb-2">
+        <div class="flex jbet items-center mb-2">
+          <span class="badge ${badgeClass}">${title} (${list.length})</span>
+          <button class="btn btn-danger btn-xs" onclick="removeBounces('${type}')">🗑 Remove ${title.toLowerCase()} from list</button>
+        </div>
+        <table><tbody>${rows}</tbody></table>
+      </div>`;
+  }
+
+  body.innerHTML =
+    section('Hard bounces', r.hard, 'hard', 'b-red') +
+    section('Soft bounces', r.soft, 'soft', 'b-yellow') +
+    (r.total > 1 ? `<button class="btn btn-danger btn-sm w-full mt-2" onclick="removeBounces('all')">🗑 Remove all bounces (${r.total})</button>` : '');
+}
+
+async function removeBounces(type) {
+  const label = type === 'hard' ? 'hard bounces' : type === 'soft' ? 'soft bounces' : 'all bounces';
+  if(!confirm(`Remove ${label} from this campaign's list? This cannot be undone.`)) return;
+  const r = await api(`/api/campaign/${CID}/bounces/remove`, {type});
+  if(r.ok) {
+    toast(`Removed ${r.removed} email(s)`);
+    loadBounces(); loadEmails(); updateStats();
+  } else {
+    toast(r.error || 'Error', 'err');
+  }
+}
+
 // ── Import ───────────────────────────────────────────────
 function toggleImport(){ const b=document.getElementById('import-box'); b.style.display=b.style.display==='none'?'':'none'; }
 async function importEmails() {
@@ -276,6 +343,63 @@ async function importEmails() {
   if(r.ok){ toast(`Imported ${r.inserted} emails (${r.skipped} skipped)`); loadEmails(); }
   else toast(r.error||'Error','err');
 }
+
+// Lee CSV/XLSX en el navegador con SheetJS, extrae email[,name] por fila
+// y lo manda al mismo endpoint de import (texto "email,name" por línea).
+function handleFileImport(event) {
+  const file = event.target.files && event.target.files[0];
+  if(!file) return;
+  const statusEl = document.getElementById('file-import-status');
+  statusEl.style.color = '';
+  statusEl.textContent = 'Reading file…';
+
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type: 'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header: 1, defval: ''});
+
+      const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+      const lines = [];
+      for(const row of rows) {
+        if(!row || !row.length) continue;
+        const email = String(row[0]||'').trim();
+        const name  = row.length > 1 ? String(row[1]||'').trim() : '';
+        if(!email) continue;
+        if(!emailRe.test(email)) continue; // descarta encabezados u otras filas no-email
+        lines.push(name ? `${email},${name}` : email);
+      }
+
+      if(!lines.length) {
+        statusEl.style.color = '#ef4444';
+        statusEl.textContent = 'No valid emails found in the file.';
+        return;
+      }
+
+      statusEl.textContent = `Found ${lines.length} emails — importing…`;
+      const r = await api(`/api/campaign/${CID}/emails/import`, {emails: lines.join('\n')});
+      if(r.ok) {
+        statusEl.style.color = '#16a34a';
+        statusEl.textContent = `✓ Imported ${r.inserted} emails (${r.skipped} skipped)`;
+        toast(`Imported ${r.inserted} emails (${r.skipped} skipped)`);
+        loadEmails();
+        loadBounces();
+      } else {
+        statusEl.style.color = '#ef4444';
+        statusEl.textContent = r.error || 'Import error';
+      }
+    } catch(err) {
+      statusEl.style.color = '#ef4444';
+      statusEl.textContent = 'Could not read file — make sure it is a valid CSV/XLSX.';
+    } finally {
+      event.target.value = ''; // permite re-subir el mismo archivo
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 async function deleteAllEmails() {
   if(!confirm('Delete all emails from this campaign?')) return;
   const r = await api(`/api/campaign/${CID}/emails/delete-all`);
@@ -308,9 +432,9 @@ document.getElementById('camp-subject').addEventListener('input', checkSpam);
 document.getElementById('camp-html').addEventListener('input', checkSpam);
 document.getElementById('camp-text').addEventListener('input', checkSpam);
 
-loadEmails(); loadLogs(); updateStats();
+loadEmails(); loadLogs(); loadBounces(); updateStats();
 setInterval(updateStats, 20000);
-setInterval(()=>{ loadEmails(); loadLogs(); }, 30000);
+setInterval(()=>{ loadEmails(); loadLogs(); loadBounces(); }, 30000);
 checkSpam();
 </script>
 {% else %}

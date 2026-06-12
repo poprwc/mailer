@@ -15,18 +15,21 @@ services:
       - key: CRON_TOKEN
         generateValue: true
 
-  # ── Background Worker 24/7 ──
-  - type: worker
-    name: campaign-mailer-worker
-    runtime: python
-    buildCommand: pip install -r requirements.txt
-    startCommand: python worker/worker.py
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: campaign-mailer-db
-          property: connectionString
+  # NOTA: no se usa un Worker service 24/7 (en el plan free de Render
+  # un Worker no se ejecuta indefinidamente gratis). En su lugar,
+  # cron-job.org (externo, gratis) hace ping a /cron/send cada 5 min,
+  # lo cual despierta este Web Service si estaba dormido y envía
+  # 1 email pendiente por ejecución (worker/cron.py).
+  #
+  # Configurar en cron-job.org:
+  #   URL:      https://<tu-app>.onrender.com/cron/send?token=<CRON_TOKEN>
+  #   Schedule: cada 5 minutos
+  #   Method:   GET
+  #
+  # El valor de CRON_TOKEN se genera automático arriba — lo ves en
+  # Render Dashboard → campaign-mailer-web → Environment.
 
 databases:
   - name: campaign-mailer-db
     plan: free
+

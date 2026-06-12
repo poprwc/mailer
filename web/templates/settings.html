@@ -57,10 +57,25 @@
     </div>
   </div>
 
-  <div class="card">
+  <div class="card mb-3">
     <div class="card-title">🌐 App public URL</div>
     <div class="fg"><label>App URL (for tracking + unsubscribe links)</label><input id="app_url" value="{{ cfg.app_url }}" placeholder="https://poprwc.pythonanywhere.com"></div>
     <p class="text-xs text-muted mb-3">Used for the open tracking pixel and unsubscribe links in every email.</p>
+    <button class="btn btn-primary" onclick="saveAll()">Save</button>
+  </div>
+
+  <div class="card">
+    <div class="card-title">🖼 Image hosting (ImgBB)</div>
+    <div class="fg">
+      <label>ImgBB API key</label>
+      <input id="imgbb_api_key" value="{{ cfg.imgbb_api_key }}" placeholder="e.g. a1b2c3d4e5f6...">
+    </div>
+    <p class="text-xs text-muted mb-3">
+      Used by the Visual Editor's image upload button (📁). Free, no expiry —
+      get a key in ~30 seconds at <a href="https://api.imgbb.com/" target="_blank" style="color:var(--accent2)">api.imgbb.com</a>
+      (sign in, then "Add application"). Leave empty to fall back to local
+      storage, which is <strong>not persistent</strong> on Render's free tier.
+    </p>
     <button class="btn btn-primary" onclick="saveAll()">Save</button>
   </div>
 </div>
@@ -78,7 +93,7 @@ function calcRate(){
 }
 calcRate();
 async function saveAll(){
-  const fields=['smtp_host','smtp_port','smtp_user','smtp_pass','smtp_from','smtp_from_name','daily_limit','interval_minutes','login_user','login_pass','app_url'];
+  const fields=['smtp_host','smtp_port','smtp_user','smtp_pass','smtp_from','smtp_from_name','daily_limit','interval_minutes','login_user','login_pass','app_url','imgbb_api_key'];
   const d={};fields.forEach(f=>{const el=document.getElementById(f);if(el)d[f]=el.value;});
   const r=await api('/api/settings/save',d);
   if(r.ok){toast('Settings saved ✓');fetch('/api/settings/cron-url').then(r=>r.json()).then(d=>{document.getElementById('cron-url').textContent=d.url;});}

@@ -305,45 +305,66 @@ def api_templates_delete(tid):
     return jsonify({"ok": True})
 
 
+@app.route("/api/upload-image", methods=["POST"])
 @login_required
 def api_upload_image():
     """
-    Recibe { filename, data_url } (data_url = 'data:image/png;base64,....')
-    Guarda en web/static/uploads/ y devuelve la URL pública.
+    Recibe { filename, data_url } (data_url = 'data:image/png;base64,....').
 
-    AVISO: en Render free tier el disco es efímero — el archivo se
-    pierde si el servicio se reinicia o redeploya. Para algo
-    persistente conviene un bucket externo (R2, Cloudinary, etc.).
+    - Si hay un ImgBB API key configurado (Settings → Image hosting),
+      sube la imagen a ImgBB (gratis, persistente, sin login en el server).
+    - Si no hay key, hace fallback a almacenamiento local en
+      web/static/uploads/ (AVISO: en Render free el disco es efímero —
+      se pierde en cada redeploy/restart).
     """
     d = request.get_json() or {}
     data_url = d.get("data_url", "")
-    filename = d.get("filename", "image.png")
 
     m = re.match(r"^data:image/(\w+);base64,(.+)$", data_url)
     if not m:
-        return jsonify({"ok": False, "error": "Formato de imagen inválido"}), 400
+        return jsonify({"ok": False, "error": "Invalid image format"}), 400
 
     ext = m.group(1).lower()
     if ext == "jpeg": ext = "jpg"
     if ext not in ALLOWED_IMG_EXT:
-        return jsonify({"ok": False, "error": f"Extensión no permitida: {ext}"}), 400
+        return jsonify({"ok": False, "error": f"Extension not allowed: {ext}"}), 400
 
+    b64_data = m.group(2)
     try:
-        raw = base64.b64decode(m.group(2))
+        raw = base64.b64decode(b64_data)
     except Exception:
-        return jsonify({"ok": False, "error": "No se pudo decodificar la imagen"}), 400
+        return jsonify({"ok": False, "error": "Could not decode image"}), 400
 
     if len(raw) > MAX_IMG_BYTES:
-        return jsonify({"ok": False, "error": "Imagen demasiado grande (máx 2MB)"}), 400
+        return jsonify({"ok": False, "error": "Image too large (max 2MB)"}), 400
 
+    imgbb_key = get_setting("imgbb_api_key", "").strip()
+
+    if imgbb_key:
+        try:
+            import urllib.request, urllib.parse, json as _json
+            payload = urllib.parse.urlencode({"key": imgbb_key, "image": b64_data}).encode()
+            req = urllib.request.Request("https://api.imgbb.com/1/upload", data=payload, method="POST")
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                result = _json.loads(resp.read().decode())
+            if result.get("success"):
+                return jsonify({"ok": True, "url": result["data"]["url"], "host": "imgbb"})
+            else:
+                log.warning("ImgBB upload failed: %s — falling back to local storage", result)
+        except Exception as e:
+            log.warning("ImgBB upload error: %s — falling back to local storage", e)
+
+    # ── Fallback: almacenamiento local (efímero en Render free) ──
     safe_name = f"{uuid.uuid4().hex}.{ext}"
     path = os.path.join(UPLOAD_DIR, safe_name)
     with open(path, "wb") as f:
         f.write(raw)
 
-    app_url = get_setting("app_url", "").rstrip("/")
-    url = f"{app_url}/static/uploads/{safe_name}" if app_url else f"/static/uploads/{safe_name}"
-    return jsonify({"ok": True, "url": url})
+    app_url = get_setting("app_url", "").rstrip("/") or request.host_url.rstrip("/")
+    url = f"{app_url}/static/uploads/{safe_name}"
+    return jsonify({"ok": True, "url": url, "host": "local",
+                    "warning": "Saved locally (ephemeral on Render free tier). "
+                               "Set an ImgBB API key in Settings for persistent hosting."})
 
 
 # ══════════════════════════════════════════════════════════
@@ -366,8 +387,47 @@ def api_emails(cid):
         rows = c.fetchall()
     return jsonify([dict(r) for r in rows])
 
-@app.route("/api/campaign/<int:cid>/emails/import", methods=["POST"])
+@app.route("/api/campaign/<int:cid>/bounces")
 @login_required
+def api_bounces(cid):
+    """Agrupa los emails con bounce_type por tipo (hard/soft) y motivo."""
+    P = ph()
+    with get_conn_dict() as conn:
+        c = conn.cursor()
+        c.execute(f"""
+            SELECT email, bounce_type, error, sent_at
+            FROM email_list
+            WHERE campaign_id={P} AND bounce_type IS NOT NULL
+            ORDER BY bounce_type, email
+        """, (cid,))
+        rows = [dict(r) for r in c.fetchall()]
+
+    hard = [r for r in rows if r["bounce_type"] == "hard"]
+    soft = [r for r in rows if r["bounce_type"] == "soft"]
+    return jsonify({"ok": True, "hard": hard, "soft": soft,
+                    "total": len(rows), "hard_count": len(hard), "soft_count": len(soft)})
+
+@app.route("/api/campaign/<int:cid>/bounces/remove", methods=["POST"])
+@login_required
+def api_bounces_remove(cid):
+    """
+    Elimina de la lista los emails con bounce. body: {"type": "hard"|"soft"|"all"}
+    Hard = dirección inválida (recomendado eliminar siempre).
+    Soft = falla temporal (eliminar opcional).
+    """
+    d = request.get_json() or {}
+    btype = d.get("type", "all")
+    P = ph()
+    with get_conn() as conn:
+        c = conn.cursor()
+        if btype == "all":
+            c.execute(f"DELETE FROM email_list WHERE campaign_id={P} AND bounce_type IS NOT NULL", (cid,))
+        else:
+            c.execute(f"DELETE FROM email_list WHERE campaign_id={P} AND bounce_type={P}", (cid, btype))
+        removed = c.rowcount
+    return jsonify({"ok": True, "removed": removed})
+
+@app.route("/api/campaign/<int:cid>/emails/import", methods=["POST"])@login_required
 def api_import_emails(cid):
     data = request.get_json() or {}
     raw  = data.get("emails", "").strip()
@@ -512,7 +572,7 @@ def api_spam_score():
 @login_required
 def settings_page():
     keys = ["smtp_host","smtp_port","smtp_user","smtp_pass","smtp_from",
-            "smtp_from_name","daily_limit","interval_minutes","login_user","login_pass","app_url"]
+            "smtp_from_name","daily_limit","interval_minutes","login_user","login_pass","app_url","imgbb_api_key"]
     cfg = {k: get_setting(k) for k in keys}
     return render_template("settings.html", cfg=cfg)
 
@@ -521,7 +581,7 @@ def settings_page():
 def api_settings_save():
     d = request.get_json() or {}
     allowed = {"smtp_host","smtp_port","smtp_user","smtp_pass","smtp_from",
-               "smtp_from_name","daily_limit","interval_minutes","login_user","login_pass","app_url"}
+               "smtp_from_name","daily_limit","interval_minutes","login_user","login_pass","app_url","imgbb_api_key"}
     for k, v in d.items():
         if k in allowed:
             set_setting(k, str(v))
@@ -531,7 +591,14 @@ def api_settings_save():
 @login_required
 def api_cron_url():
     app_url = get_setting("app_url","").rstrip("/")
-    token   = os.environ.get("CRON_TOKEN", "changeme")
+    if not app_url:
+        app_url = request.host_url.rstrip("/")
+    token   = os.environ.get("CRON_TOKEN", "")
+    if not token:
+        return jsonify({
+            "url": f"{app_url}/cron/send?token=MISSING_CRON_TOKEN",
+            "warning": "CRON_TOKEN env var is not set on Render — set it manually in Environment settings."
+        })
     return jsonify({"url": f"{app_url}/cron/send?token={token}"})
 
 @app.route("/api/settings/test-smtp", methods=["POST"])
@@ -563,8 +630,8 @@ def api_test_smtp():
 # ══════════════════════════════════════════════════════════
 @app.route("/cron/send")
 def cron_send():
-    token = os.environ.get("CRON_TOKEN", "changeme")
-    if request.args.get("token") != token:
+    token = os.environ.get("CRON_TOKEN", "")
+    if not token or request.args.get("token") != token:
         abort(403)
     try:
         from worker.cron import run

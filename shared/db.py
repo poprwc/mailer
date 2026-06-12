@@ -145,7 +145,8 @@ def init_db():
         defaults = {
             "smtp_host":"", "smtp_port":"587", "smtp_user":"", "smtp_pass":"",
             "smtp_from":"", "smtp_from_name":"", "daily_limit":"300",
-            "interval_minutes":"5", "login_user":"admin", "login_pass":"admin123", "app_url":""
+            "interval_minutes":"5", "login_user":"admin", "login_pass":"admin123", "app_url":"",
+            "imgbb_api_key":""
         }
         for k, v in defaults.items():
             try:
