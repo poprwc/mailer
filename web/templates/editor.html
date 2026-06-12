@@ -66,6 +66,7 @@
     </div>
   </div>
 
+  {% if campaign %}
   {# HTML Body #}
   <div class="card mb-3">
     <div class="card-title">
@@ -74,18 +75,22 @@
     </div>
     <div class="fg" style="margin-bottom:0">
       <textarea id="camp-html" rows="10" style="font-family:monospace;font-size:12px;resize:vertical"
-        placeholder="<p>Your email HTML here…</p>">{{ campaign[3] if campaign else '' }}</textarea>
+        placeholder="<p>Your email HTML here…</p>">{{ campaign[3] }}</textarea>
     </div>
   </div>
 
-  {# Text Body #}
+  {# Text Body — opcional, se auto-genera si se deja vacío #}
   <div class="card mb-3">
-    <div class="card-title">📝 Plain text body</div>
+    <div class="card-title flex jbet">
+      <span>📝 Plain text body</span>
+      <span class="text-xs text-muted" style="font-weight:400">Optional — auto-generated from HTML if left empty</span>
+    </div>
     <div class="fg" style="margin-bottom:0">
-      <textarea id="camp-text" rows="5" style="font-family:monospace;font-size:12px;resize:vertical"
-        placeholder="Plain text version of the email (for clients that don't support HTML)">{{ campaign[4] if campaign else '' }}</textarea>
+      <textarea id="camp-text" rows="4" style="font-family:monospace;font-size:12px;resize:vertical"
+        placeholder="Leave empty to auto-generate from HTML body…">{{ campaign[4] }}</textarea>
     </div>
   </div>
+  {% endif %}
 
   <div class="flex gap-2 mb-3">
     {% if campaign %}
@@ -327,7 +332,7 @@ function checkSpam() {
   spamTimer = setTimeout(async ()=>{
     const r = await api('/api/spam-score', {
       subject: document.getElementById('camp-subject').value,
-      html_body: document.getElementById('camp-html').value,
+      html_body: '',
     });
     document.getElementById('spam-score').textContent = r.score;
     const bar = document.getElementById('spam-bar');
@@ -337,7 +342,6 @@ function checkSpam() {
   }, 600);
 }
 document.getElementById('camp-subject').addEventListener('input', checkSpam);
-document.getElementById('camp-html').addEventListener('input', checkSpam);
 </script>
 {% endif %}
 {% endblock %}

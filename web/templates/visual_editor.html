@@ -241,6 +241,25 @@
   line-height: 1.6;
 }
 
+/* ── Text formatting toolbar ── */
+.ta-toolbar {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.ta-toolbar button {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+  line-height: 1;
+  transition: all .15s;
+}
+.ta-toolbar button:hover { background: #0ea5e9; border-color: #0ea5e9; color: #fff; }
+
 /* ── Preview Modal ── */
 #ve-preview-modal {
   display: none;
@@ -950,8 +969,20 @@ function propTextarea(label, key, val) {
     <textarea class="prop-input" rows="3" onchange="setProp('${key}',this.value)">${escHtml(val)}</textarea></div>`;
 }
 function propTextareaHtml(label, key, val) {
-  return `<div class="prop-group"><label class="prop-label">${label}</label>
-    <textarea class="prop-input" rows="6" onchange="setProp('${key}',this.value)" style="font-family:monospace;font-size:11px;resize:vertical">${escHtml(val)}</textarea></div>`;
+  const taId = `ta-${key}-${selectedId}`;
+  return `<div class="prop-group">
+    <label class="prop-label">${label}</label>
+    <div class="ta-toolbar" data-target="${taId}" data-key="${key}">
+      <button type="button" title="Negrita" onclick="formatSelection('${taId}','${key}','bold')"><b>B</b></button>
+      <button type="button" title="Cursiva" onclick="formatSelection('${taId}','${key}','italic')"><i>I</i></button>
+      <button type="button" title="Color de texto" onclick="formatSelection('${taId}','${key}','color')">🎨</button>
+      <button type="button" title="Tamaño de fuente" onclick="formatSelection('${taId}','${key}','size')">A↕</button>
+      <button type="button" title="Agregar link" onclick="formatSelection('${taId}','${key}','link')">🔗</button>
+    </div>
+    <textarea class="prop-input" id="${taId}" rows="6" onchange="setProp('${key}',this.value)"
+      style="font-family:monospace;font-size:11px;resize:vertical">${escHtml(val)}</textarea>
+    <div class="text-xs text-muted mt-2">Seleccioná texto arriba y usá los botones para aplicar formato.</div>
+  </div>`;
 }
 function propColor(label, key, val) {
   return `<div class="prop-group"><label class="prop-label">${label}</label>
@@ -1064,6 +1095,63 @@ function setProp(key, value) {
   renderCanvas();
   // No re-renderizamos todo el panel de props (perdería foco en otros campos);
   // pero si cambia algo que afecta el preview de imagen, sí refrescamos.
+}
+
+// ── Format toolbar: envuelve la selección del textarea con tags HTML ──
+function formatSelection(textareaId, propKey, kind) {
+  const ta = document.getElementById(textareaId);
+  if(!ta) return;
+
+  const start = ta.selectionStart;
+  const end   = ta.selectionEnd;
+  const selected = ta.value.substring(start, end);
+
+  if(!selected) {
+    showToast('Seleccioná texto primero', 'yellow');
+    ta.focus();
+    return;
+  }
+
+  let openTag = '', closeTag = '';
+
+  switch(kind) {
+    case 'bold':
+      openTag = '<strong>'; closeTag = '</strong>';
+      break;
+    case 'italic':
+      openTag = '<em>'; closeTag = '</em>';
+      break;
+    case 'color': {
+      const color = prompt('Color (nombre o código hex, ej: #ff0000 o red):', '#ff0000');
+      if(!color) return;
+      openTag = `<span style="color:${color}">`; closeTag = '</span>';
+      break;
+    }
+    case 'size': {
+      const size = prompt('Tamaño de fuente en px (ej: 18):', '18');
+      if(!size) return;
+      openTag = `<span style="font-size:${size}px">`; closeTag = '</span>';
+      break;
+    }
+    case 'link': {
+      const url = prompt('URL del link (ej: https://reggaeworldcr.com):', 'https://');
+      if(!url) return;
+      openTag = `<a href="${url}" style="color:#0ea5e9;text-decoration:underline">`; closeTag = '</a>';
+      break;
+    }
+  }
+
+  const newValue = ta.value.substring(0, start) + openTag + selected + closeTag + ta.value.substring(end);
+  ta.value = newValue;
+
+  // Persistir en el modelo y re-renderizar canvas
+  setProp(propKey, newValue);
+
+  // Restaurar foco y selección sobre el texto recién envuelto
+  ta.focus();
+  const newStart = start + openTag.length;
+  const newEnd   = newStart + selected.length;
+  ta.setSelectionRange(newStart, newEnd);
 }
 
 function escAttr(s) { return String(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }

@@ -71,6 +71,23 @@ def calc_spam_score(subject, html_body, text_body=""):
     if excl > 1: tips.append(f"{excl} exclamation marks in subject")
     return {"score": round(score, 1), "max": 10, "tips": tips, "triggers": hits}
 
+# ─── Helpers ────────────────────────────────────────────────
+def html_to_text(html):
+    """Convierte HTML simple a texto plano para el cuerpo alternativo del email."""
+    text = re.sub(r'<style[^>]*>.*?</style>', '', html, flags=re.S|re.I)
+    text = re.sub(r'<script[^>]*>.*?</script>', '', text, flags=re.S|re.I)
+    text = re.sub(r'<br\s*/?>', '\n', text, flags=re.I)
+    text = re.sub(r'</(p|div|tr|h[1-6]|li)>', '\n', text, flags=re.I)
+    text = re.sub(r'<a[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>', r'\2 (\1)', text, flags=re.S|re.I)
+    text = re.sub(r'<[^>]+>', '', text)
+    text = re.sub(r'&nbsp;', ' ', text)
+    text = re.sub(r'&amp;', '&', text)
+    text = re.sub(r'&lt;', '<', text)
+    text = re.sub(r'&gt;', '>', text)
+    text = re.sub(r'\n\s*\n+', '\n\n', text)
+    text = '\n'.join(line.strip() for line in text.split('\n'))
+    return text.strip()
+
 # ══════════════════════════════════════════════════════════
 #  AUTH ROUTES
 # ══════════════════════════════════════════════════════════
@@ -171,11 +188,15 @@ def campaign_edit(campaign_id):
 def campaign_save(campaign_id):
     d = request.get_json() or {}
     P = ph()
+    html_body = d.get("html_body","")
+    text_body = d.get("text_body","").strip()
+    if not text_body and html_body:
+        text_body = html_to_text(html_body)
     with get_conn() as conn:
         c = conn.cursor()
         c.execute(f"UPDATE campaigns SET name={P},subject={P},html_body={P},text_body={P} WHERE id={P}",
                   (d.get("name",""), d.get("subject",""),
-                   d.get("html_body",""), d.get("text_body",""),
+                   html_body, text_body,
                    campaign_id))
     return jsonify({"ok": True})
 
@@ -220,10 +241,11 @@ def api_set_body(campaign_id):
     if not html_body:
         return jsonify({"ok": False, "error": "Empty HTML"}), 400
     P = ph()
+    text_body = html_to_text(html_body)
     with get_conn() as conn:
         c = conn.cursor()
-        c.execute(f"UPDATE campaigns SET html_body={P}, body_visual={P} WHERE id={P}",
-                  (html_body, body_visual, campaign_id))
+        c.execute(f"UPDATE campaigns SET html_body={P}, body_visual={P}, text_body={P} WHERE id={P}",
+                  (html_body, body_visual, text_body, campaign_id))
     log.info("Visual body saved — campaign %s", campaign_id)
     return jsonify({"ok": True})
 
