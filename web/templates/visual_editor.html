@@ -675,6 +675,30 @@ function renderDropZone(idx) {
   return `<div class="ve-drop-zone" data-idx="${idx}"></div>`;
 }
 
+// ── Canvas-level fallback (cubre canvas vacío y áreas sin drop-zone) ──
+const veCanvasEl = document.getElementById('ve-canvas');
+veCanvasEl.addEventListener('dragover', e => {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = dragBlockId ? 'move' : 'copy';
+  if(!blocks.length) veCanvasEl.classList.add('drag-over');
+});
+veCanvasEl.addEventListener('dragleave', () => {
+  veCanvasEl.classList.remove('drag-over');
+});
+veCanvasEl.addEventListener('drop', e => {
+  e.preventDefault();
+  veCanvasEl.classList.remove('drag-over');
+  // Si el drop ya fue manejado por una drop-zone específica, no duplicar
+  if(e.target.closest && e.target.closest('.ve-drop-zone')) return;
+  if(dragType) {
+    addBlock(dragType, blocks.length); // al final (o único, si está vacío)
+    dragType = null;
+  } else if(dragBlockId) {
+    reorderBlock(dragBlockId, blocks.length);
+    dragBlockId = null;
+  }
+});
+
 // ── Block Operations ────────────────────────────────────
 function addBlock(type, insertIdx) {
   pushHistory();
