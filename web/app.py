@@ -427,7 +427,8 @@ def api_bounces_remove(cid):
         removed = c.rowcount
     return jsonify({"ok": True, "removed": removed})
 
-@app.route("/api/campaign/<int:cid>/emails/import", methods=["POST"])@login_required
+@app.route("/api/campaign/<int:cid>/emails/import", methods=["POST"])
+@login_required
 def api_import_emails(cid):
     data = request.get_json() or {}
     raw  = data.get("emails", "").strip()
