@@ -100,6 +100,10 @@ def init_db():
                 """CREATE TABLE IF NOT EXISTS unsubscribes (
                     id SERIAL PRIMARY KEY, email TEXT UNIQUE NOT NULL,
                     campaign_id INTEGER, unsub_at TIMESTAMP DEFAULT NOW())""",
+                """CREATE TABLE IF NOT EXISTS templates (
+                    id SERIAL PRIMARY KEY, name TEXT NOT NULL,
+                    blocks_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT NOW())""",
                 # migrations seguras — no fallan si ya existe
                 "ALTER TABLE campaigns ADD COLUMN IF NOT EXISTS body_visual TEXT",
                 "CREATE INDEX IF NOT EXISTS idx_el_camp ON email_list(campaign_id)",
@@ -130,6 +134,10 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS unsubscribes (
                     id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE NOT NULL,
                     campaign_id INTEGER, unsub_at TEXT DEFAULT (datetime('now')));
+                CREATE TABLE IF NOT EXISTS templates (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+                    blocks_json TEXT NOT NULL,
+                    created_at TEXT DEFAULT (datetime('now')));
                 CREATE INDEX IF NOT EXISTS idx_el_camp ON email_list(campaign_id);
                 CREATE INDEX IF NOT EXISTS idx_el_status ON email_list(campaign_id,status);
                 CREATE INDEX IF NOT EXISTS idx_opens ON opens(campaign_id);

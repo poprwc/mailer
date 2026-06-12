@@ -30,6 +30,14 @@
   padding: 0 4px;
 }
 #ve-palette h3:first-child { margin-top: 0; }
+.palette-hint {
+  font-size: 10px;
+  color: #555;
+  padding: 0 4px 10px;
+  line-height: 1.5;
+  border-bottom: 1px solid #2a2a2a;
+  margin-bottom: 8px;
+}
 
 .palette-block {
   background: #1a1a1a;
@@ -299,9 +307,13 @@
   <span style="color:#333">/</span>
   <span style="font-size:13px;color:#ccc;font-weight:600">Editor Visual</span>
   <span style="font-size:11px;color:#555;background:#1a1a1a;padding:2px 8px;border-radius:10px">{{ campaign[1] }}</span>
+  <span id="autosave-indicator" class="text-xs" style="color:#444"></span>
   <div style="margin-left:auto;display:flex;gap:8px">
+    <button onclick="openTemplatesModal()" style="padding:6px 14px;border-radius:6px;border:1px solid #333;background:#1a1a1a;color:#ccc;font-size:12px;cursor:pointer">📂 Plantillas</button>
+    <button onclick="saveAsTemplate()" style="padding:6px 14px;border-radius:6px;border:1px solid #333;background:#1a1a1a;color:#ccc;font-size:12px;cursor:pointer">💼 Guardar como plantilla</button>
     <button onclick="previewEmail()" style="padding:6px 14px;border-radius:6px;border:1px solid #333;background:#1a1a1a;color:#ccc;font-size:12px;cursor:pointer">👁 Preview</button>
-    <button onclick="saveAndUse()" style="padding:6px 14px;border-radius:6px;border:none;background:#0ea5e9;color:#fff;font-size:12px;cursor:pointer;font-weight:600">✓ Usar este HTML</button>
+    <button onclick="saveAndStay()" style="padding:6px 14px;border-radius:6px;border:1px solid #0ea5e9;background:transparent;color:#0ea5e9;font-size:12px;cursor:pointer;font-weight:600">💾 Guardar</button>
+    <button onclick="saveAndExit()" style="padding:6px 14px;border-radius:6px;border:none;background:#0ea5e9;color:#fff;font-size:12px;cursor:pointer;font-weight:600">✓ Guardar y volver</button>
   </div>
 </div>
 
@@ -310,6 +322,7 @@
 
   <!-- LEFT: PALETTE -->
   <div id="ve-palette">
+    <div class="palette-hint">💡 Clic para agregar al final,<br>o arrastrá para soltar en un lugar específico.</div>
     <h3>Estructura</h3>
     <div class="palette-block" draggable="true" data-type="header">
       <span class="pb-icon">🏷️</span> Header / Logo
@@ -360,7 +373,6 @@
       <button onclick="redo()">↪ Rehacer</button>
       <button onclick="clearCanvas()" class="btn-danger">🗑 Limpiar</button>
       <div class="sep"></div>
-      <button onclick="loadFromCampaign()">📥 Cargar HTML actual</button>
       <button onclick="previewEmail()" class="btn-primary">👁 Preview</button>
     </div>
 
@@ -397,6 +409,19 @@
     </div>
     <div id="ve-preview-body">
       <iframe id="ve-preview-frame" sandbox="allow-same-origin allow-scripts"></iframe>
+    </div>
+  </div>
+</div>
+
+<!-- TEMPLATES MODAL -->
+<div id="ve-templates-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:#1a1a1a;border-radius:12px;width:480px;max-width:94vw;max-height:80vh;overflow:hidden;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:center;padding:12px 16px;border-bottom:1px solid #2a2a2a;gap:12px">
+      <h3 style="margin:0;font-size:14px;flex:1;color:#fff">📂 Plantillas guardadas</h3>
+      <button onclick="closeTemplatesModal()" style="background:transparent;border:none;color:#888;font-size:18px;cursor:pointer">✕</button>
+    </div>
+    <div id="ve-templates-list" style="flex:1;overflow:auto;padding:12px 16px">
+      <div class="text-muted text-sm">Cargando…</div>
     </div>
   </div>
 </div>
@@ -605,15 +630,15 @@ function uid() { return 'b' + Math.random().toString(36).substr(2,8); }
 
 function renderCanvas() {
   const canvas = document.getElementById('ve-canvas');
-  const empty = document.getElementById('canvas-empty');
 
   if(!blocks.length) {
-    canvas.innerHTML = '';
-    canvas.appendChild(empty);
-    empty.style.display = '';
+    canvas.innerHTML = `<div id="canvas-empty">
+        <div class="icon">📧</div>
+        <p>Arrastrá bloques desde la izquierda<br>o hacé clic en uno<br>para construir tu email</p>
+      </div>` + renderDropZone(0);
+    attachCanvasDropEvents();
     return;
   }
-  empty.style.display = 'none';
 
   let html = renderDropZone(0);
   blocks.forEach((b, i) => {
@@ -630,8 +655,17 @@ function renderCanvas() {
   });
 
   canvas.innerHTML = html;
+  attachCanvasDropEvents();
+}
 
-  // Re-attach events
+function renderDropZone(idx) {
+  return `<div class="ve-drop-zone" data-idx="${idx}"></div>`;
+}
+
+// ── Drag & drop events (re-attached on every render) ────
+function attachCanvasDropEvents() {
+  const canvas = document.getElementById('ve-canvas');
+
   canvas.querySelectorAll('.ve-block').forEach(el => {
     el.addEventListener('click', e => {
       e.stopPropagation();
@@ -652,12 +686,14 @@ function renderCanvas() {
   canvas.querySelectorAll('.ve-drop-zone').forEach(el => {
     el.addEventListener('dragover', e => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = dragBlockId ? 'move' : 'copy';
       el.classList.add('active');
     });
     el.addEventListener('dragleave', () => el.classList.remove('active'));
     el.addEventListener('drop', e => {
       e.preventDefault();
+      e.stopPropagation();
       el.classList.remove('active');
       const idx = parseInt(el.dataset.idx);
       if(dragType) {
@@ -671,27 +707,16 @@ function renderCanvas() {
   });
 }
 
-function renderDropZone(idx) {
-  return `<div class="ve-drop-zone" data-idx="${idx}"></div>`;
-}
-
-// ── Canvas-level fallback (cubre canvas vacío y áreas sin drop-zone) ──
+// ── Canvas-level fallback (cualquier drop fuera de una drop-zone) ──
 const veCanvasEl = document.getElementById('ve-canvas');
 veCanvasEl.addEventListener('dragover', e => {
   e.preventDefault();
   e.dataTransfer.dropEffect = dragBlockId ? 'move' : 'copy';
-  if(!blocks.length) veCanvasEl.classList.add('drag-over');
-});
-veCanvasEl.addEventListener('dragleave', () => {
-  veCanvasEl.classList.remove('drag-over');
 });
 veCanvasEl.addEventListener('drop', e => {
   e.preventDefault();
-  veCanvasEl.classList.remove('drag-over');
-  // Si el drop ya fue manejado por una drop-zone específica, no duplicar
-  if(e.target.closest && e.target.closest('.ve-drop-zone')) return;
   if(dragType) {
-    addBlock(dragType, blocks.length); // al final (o único, si está vacío)
+    addBlock(dragType, blocks.length);
     dragType = null;
   } else if(dragBlockId) {
     reorderBlock(dragBlockId, blocks.length);
@@ -703,7 +728,7 @@ veCanvasEl.addEventListener('drop', e => {
 function addBlock(type, insertIdx) {
   pushHistory();
   const b = { id: uid(), type, props: JSON.parse(JSON.stringify(BLOCK_DEFAULTS[type]||{})) };
-  if(insertIdx !== undefined) {
+  if(insertIdx !== undefined && insertIdx !== null) {
     blocks.splice(insertIdx, 0, b);
   } else {
     blocks.push(b);
@@ -711,13 +736,19 @@ function addBlock(type, insertIdx) {
   selectedId = b.id;
   renderCanvas();
   renderProps();
+  // Scroll al bloque nuevo
+  setTimeout(() => {
+    const el = document.querySelector(`.ve-block[data-id="${b.id}"]`);
+    if(el) el.scrollIntoView({behavior:'smooth', block:'center'});
+  }, 50);
 }
 
 function deleteBlock(id) {
   pushHistory();
   blocks = blocks.filter(b => b.id !== id);
-  if(selectedId === id) { selectedId = null; renderProps(); }
+  if(selectedId === id) selectedId = null;
   renderCanvas();
+  renderProps();
 }
 
 function duplicateBlock(id) {
@@ -755,7 +786,6 @@ function selectBlock(id) {
   selectedId = id;
   renderCanvas();
   renderProps();
-  // scroll props into view
   document.getElementById('ve-props').scrollTop = 0;
 }
 
@@ -774,6 +804,8 @@ function pushHistory() {
   history = history.slice(0, historyIdx + 1);
   history.push(JSON.stringify({blocks, selectedId}));
   historyIdx = history.length - 1;
+  if(history.length > 60) { history.shift(); historyIdx--; }
+  markUnsaved();
 }
 
 function undo() {
@@ -801,14 +833,14 @@ function renderProps() {
     return;
   }
   const b = blocks.find(b => b.id === selectedId);
-  if(!b) return;
+  if(!b) { container.innerHTML = '<div class="no-selection">Seleccioná un bloque para editar sus propiedades</div>'; return; }
 
   const p = b.props;
   let html = `<div style="font-size:12px;color:#0ea5e9;font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #2a2a2a">${blockLabel(b.type)}</div>`;
 
   switch(b.type) {
     case 'header':
-      html += propText('Logo URL', 'logo', p.logo, 'https://tudominio.com/logo.png') +
+      html += propImage('Logo', 'logo', p.logo, 'https://tudominio.com/logo.png') +
         propText('Alt / Nombre', 'logoAlt', p.logoAlt) +
         propRange('Ancho logo', 'logoWidth', p.logoWidth, 40, 300) +
         propColor('Fondo', 'bgColor', p.bgColor) +
@@ -816,7 +848,7 @@ function renderProps() {
         propRange('Padding', 'padding', p.padding, 8, 60);
       break;
     case 'hero':
-      html += propText('URL imagen', 'imageUrl', p.imageUrl) +
+      html += propImage('Imagen', 'imageUrl', p.imageUrl) +
         propText('Alt text', 'altText', p.altText) +
         propText('Link (opcional)', 'linkUrl', p.linkUrl, 'https://');
       break;
@@ -829,15 +861,14 @@ function renderProps() {
         propRange('Padding', 'padding', p.padding, 0, 48);
       break;
     case 'text':
-      html += `<div class="prop-group"><label class="prop-label">Contenido HTML</label>
-        <textarea class="prop-input" rows="8" onchange="setProp('html',this.value)" style="font-family:monospace;font-size:11px;resize:vertical">${p.html}</textarea></div>` +
+      html += propTextareaHtml('Contenido HTML', 'html', p.html) +
         propColor('Color texto', 'color', p.color) +
         propColor('Fondo', 'bgColor', p.bgColor) +
         propRange('Tamaño fuente', 'fontSize', p.fontSize, 11, 24) +
         propRange('Padding', 'padding', p.padding, 0, 48);
       break;
     case 'image':
-      html += propText('URL imagen', 'imageUrl', p.imageUrl) +
+      html += propImage('Imagen', 'imageUrl', p.imageUrl) +
         propText('Alt text', 'altText', p.altText) +
         propText('Link (opcional)', 'linkUrl', p.linkUrl, 'https://') +
         propRange('Ancho %', 'width', p.width, 20, 100) +
@@ -863,16 +894,13 @@ function renderProps() {
         propColor('Color fondo', 'bgColor', p.bgColor);
       break;
     case 'columns':
-      html += `<div class="prop-group"><label class="prop-label">Columna 1 (HTML)</label>
-          <textarea class="prop-input" rows="5" onchange="setProp('col1',this.value)" style="font-family:monospace;font-size:11px;resize:vertical">${p.col1}</textarea></div>
-        <div class="prop-group"><label class="prop-label">Columna 2 (HTML)</label>
-          <textarea class="prop-input" rows="5" onchange="setProp('col2',this.value)" style="font-family:monospace;font-size:11px;resize:vertical">${p.col2}</textarea></div>` +
+      html += propTextareaHtml('Columna 1 (HTML)', 'col1', p.col1) +
+        propTextareaHtml('Columna 2 (HTML)', 'col2', p.col2) +
         propColor('Fondo', 'bgColor', p.bgColor) +
         propRange('Padding', 'padding', p.padding, 0, 40);
       break;
     case 'unsubscribe':
-      html += `<div class="prop-group"><label class="prop-label">Texto (usa {unsubscribe_link})</label>
-          <textarea class="prop-input" rows="3" onchange="setProp('text',this.value)" style="font-size:11px;resize:vertical">${p.text}</textarea></div>` +
+      html += propTextarea('Texto (usa {unsubscribe_link})', 'text', p.text) +
         propColor('Color texto', 'color', p.color) +
         propColor('Fondo', 'bgColor', p.bgColor) +
         propRange('Tamaño fuente', 'fontSize', p.fontSize, 9, 14) +
@@ -880,8 +908,7 @@ function renderProps() {
         propRange('Padding', 'padding', p.padding, 8, 40);
       break;
     case 'footer':
-      html += `<div class="prop-group"><label class="prop-label">Contenido HTML</label>
-          <textarea class="prop-input" rows="4" onchange="setProp('text',this.value)" style="font-size:11px;resize:vertical">${p.text}</textarea></div>` +
+      html += propTextareaHtml('Contenido HTML', 'text', p.text) +
         propColor('Color texto', 'color', p.color) +
         propColor('Fondo', 'bgColor', p.bgColor) +
         propRange('Tamaño fuente', 'fontSize', p.fontSize, 9, 16) +
@@ -899,7 +926,6 @@ function renderProps() {
       break;
   }
 
-  // Delete block button
   html += `<div style="margin-top:20px;padding-top:16px;border-top:1px solid #2a2a2a">
     <button onclick="deleteBlock('${b.id}')" class="prop-btn" style="border-color:#ef4444;color:#ef4444">🗑 Eliminar bloque</button>
   </div>`;
@@ -907,26 +933,39 @@ function renderProps() {
   container.innerHTML = html;
 }
 
-// ── Prop helpers ────────────────────────────────────────
+// ── Prop helpers ─────────────────────────────────────────
+// Todas las propiedades aplican el cambio al modelo `blocks` y
+// hacen un re-render COMPLETO del bloque (renderCanvas) para
+// garantizar que lo que se ve == lo que se va a exportar/guardar.
+// Los inputs de texto usan onchange (no oninput) para no perder
+// el foco en cada tecla; color/range/select sí actualizan en vivo.
+
 function propText(label, key, val, placeholder='') {
   return `<div class="prop-group"><label class="prop-label">${label}</label>
-    <input class="prop-input" type="text" value="${escAttr(val)}" placeholder="${escAttr(placeholder)}" oninput="setProp('${key}',this.value)"></div>`;
+    <input class="prop-input" type="text" value="${escAttr(val)}" placeholder="${escAttr(placeholder)}"
+      onchange="setProp('${key}',this.value)"></div>`;
 }
 function propTextarea(label, key, val) {
   return `<div class="prop-group"><label class="prop-label">${label}</label>
-    <textarea class="prop-input" rows="3" oninput="setProp('${key}',this.value)">${val}</textarea></div>`;
+    <textarea class="prop-input" rows="3" onchange="setProp('${key}',this.value)">${escHtml(val)}</textarea></div>`;
+}
+function propTextareaHtml(label, key, val) {
+  return `<div class="prop-group"><label class="prop-label">${label}</label>
+    <textarea class="prop-input" rows="6" onchange="setProp('${key}',this.value)" style="font-family:monospace;font-size:11px;resize:vertical">${escHtml(val)}</textarea></div>`;
 }
 function propColor(label, key, val) {
   return `<div class="prop-group"><label class="prop-label">${label}</label>
     <div class="prop-color">
-      <input type="color" value="${val}" oninput="setProp('${key}',this.value);this.nextSibling.value=this.value">
-      <input class="prop-input" type="text" value="${val}" oninput="setProp('${key}',this.value);this.previousSibling.value=this.value">
+      <input type="color" value="${val}" oninput="setProp('${key}',this.value);this.nextElementSibling.value=this.value">
+      <input class="prop-input" type="text" value="${val}"
+        onchange="setProp('${key}',this.value);this.previousElementSibling.value=this.value">
     </div></div>`;
 }
 function propRange(label, key, val, min, max) {
   return `<div class="prop-group"><label class="prop-label">${label}: <strong id="lbl-${key}">${val}</strong></label>
     <input type="range" min="${min}" max="${max}" value="${val}" style="width:100%;accent-color:#0ea5e9"
-      oninput="document.getElementById('lbl-${key}').textContent=this.value;setProp('${key}',parseInt(this.value))"></div>`;
+      oninput="document.getElementById('lbl-${key}').textContent=this.value"
+      onchange="setProp('${key}',parseInt(this.value))"></div>`;
 }
 function propSelect(label, key, val, opts) {
   const options = Object.entries(opts).map(([v,l])=>`<option value="${v}"${v===val?' selected':''}>${l}</option>`).join('');
@@ -936,25 +975,99 @@ function propSelect(label, key, val, opts) {
 function propAlign(label, key, val) {
   return `<div class="prop-group"><label class="prop-label">${label}</label>
     <div style="display:flex;gap:4px">
-      ${['left','center','right'].map(a=>`<button class="prop-btn${val===a?' active':''}" onclick="setProp('${key}','${a}');renderProps()" style="flex:1">${a==='left'?'◀':a==='center'?'◆':'▶'} ${a}</button>`).join('')}
+      ${['left','center','right'].map(a=>`<button type="button" class="prop-btn${val===a?' active':''}" onclick="setProp('${key}','${a}')" style="flex:1">${a==='left'?'◀':a==='center'?'◆':'▶'} ${a}</button>`).join('')}
     </div></div>`;
 }
 
+// Campo de imagen: URL editable + botón de subida + preview.
+// La subida sube el archivo a /api/upload-image y reemplaza la URL.
+function propImage(label, key, val, placeholder='https://...') {
+  const inputId  = `img-url-${key}`;
+  const fileId   = `img-file-${key}`;
+  const prevId   = `img-prev-${key}`;
+  const safeVal  = escAttr(val);
+  return `<div class="prop-group">
+    <label class="prop-label">${label}</label>
+    <div style="display:flex;gap:6px">
+      <input class="prop-input" id="${inputId}" type="text" value="${safeVal}" placeholder="${escAttr(placeholder)}"
+        onchange="setProp('${key}',this.value)" style="flex:1">
+      <label class="prop-btn" style="width:auto;padding:6px 10px;margin:0;cursor:pointer" title="Subir imagen">
+        📁
+        <input type="file" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none"
+          onchange="uploadImage(this, '${key}', '${inputId}', '${prevId}')">
+      </label>
+    </div>
+    <div id="upload-status-${key}" class="text-xs" style="color:#0ea5e9;margin-top:4px;display:none"></div>
+    ${val ? `<img id="${prevId}" src="${safeVal}" style="max-width:100%;max-height:80px;margin-top:6px;border-radius:4px;border:1px solid #2a2a2a">`
+          : `<div id="${prevId}" style="display:none"></div>`}
+  </div>`;
+}
+
+async function uploadImage(inputEl, key, urlInputId, prevId) {
+  const file = inputEl.files && inputEl.files[0];
+  if(!file) return;
+  if(file.size > 2*1024*1024) { showToast('Imagen demasiado grande (máx 2MB)', 'red'); return; }
+
+  const statusEl = document.getElementById(`upload-status-${key}`);
+  if(statusEl) { statusEl.style.display=''; statusEl.textContent = 'Subiendo…'; }
+
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try {
+      const r = await fetch('/api/upload-image', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ filename: file.name, data_url: reader.result })
+      });
+      const d = await r.json();
+      if(!d.ok) { showToast('Error: ' + d.error, 'red'); if(statusEl) statusEl.style.display='none'; return; }
+
+      setProp(key, d.url);
+
+      const urlInput = document.getElementById(urlInputId);
+      if(urlInput) urlInput.value = d.url;
+      const prevEl = document.getElementById(prevId);
+      if(prevEl) {
+        prevEl.src = d.url;
+        prevEl.style.display = '';
+        prevEl.style.maxWidth = '100%';
+        prevEl.style.maxHeight = '80px';
+        prevEl.style.marginTop = '6px';
+        prevEl.style.borderRadius = '4px';
+        prevEl.style.border = '1px solid #2a2a2a';
+        if(prevEl.tagName !== 'IMG') {
+          const img = document.createElement('img');
+          img.id = prevId; img.src = d.url;
+          img.style.cssText = prevEl.style.cssText;
+          prevEl.replaceWith(img);
+        }
+      }
+      if(statusEl) { statusEl.textContent = '✓ Subida ok'; setTimeout(()=>statusEl.style.display='none', 1500); }
+      showToast('Imagen subida ✓', 'green');
+    } catch(e) {
+      showToast('Error al subir imagen', 'red');
+      if(statusEl) statusEl.style.display='none';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+// setProp: aplica el cambio al modelo y re-renderiza TODO
+// (canvas completo). Esto garantiza consistencia visual y que
+// "Usar este HTML" exporte exactamente lo que se está viendo.
 function setProp(key, value) {
   if(!selectedId) return;
   const b = blocks.find(b => b.id === selectedId);
   if(!b) return;
   pushHistory();
   b.props[key] = value;
-  // Live-update just the block HTML (no full re-render to preserve focus)
-  const blockEl = document.querySelector(`.ve-block[data-id="${selectedId}"]`);
-  if(blockEl) {
-    const controls = blockEl.querySelector('.ve-block-controls').outerHTML;
-    blockEl.innerHTML = controls + renderBlock(b);
-  }
+  renderCanvas();
+  // No re-renderizamos todo el panel de props (perdería foco en otros campos);
+  // pero si cambia algo que afecta el preview de imagen, sí refrescamos.
 }
 
 function escAttr(s) { return String(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+function escHtml(s) { return String(s||'').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 function blockLabel(type) {
   const labels = {
@@ -994,10 +1107,10 @@ ${body}
 
 // ── Preview ─────────────────────────────────────────────
 function previewEmail() {
+  if(!blocks.length) { showToast('Agregá al menos un bloque primero', 'yellow'); return; }
   const modal = document.getElementById('ve-preview-modal');
   const frame = document.getElementById('ve-preview-frame');
-  const html = buildEmailHTML();
-  frame.srcdoc = html;
+  frame.srcdoc = buildEmailHTML();
   modal.classList.add('open');
 }
 
@@ -1012,65 +1125,177 @@ function setPreviewMode(mode, btn) {
   body.className = mode === 'mobile' ? 'mobile' : '';
 }
 
-// ── Save & Use ──────────────────────────────────────────
-async function saveAndUse() {
+// ── Save (build HTML + persist) ──────────────────────────
+async function persistDesign() {
   const html = buildEmailHTML();
+  const r = await fetch(`/api/campaign/${CAMPAIGN_ID}/set-body`, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+      body_html: html,
+      body_visual: JSON.stringify(blocks)
+    })
+  });
+  return r.json();
+}
+
+async function saveAndStay() {
+  if(!blocks.length) { showToast('Agregá al menos un bloque antes de guardar', 'yellow'); return; }
   try {
-    const r = await fetch(`/api/campaign/${CAMPAIGN_ID}/set-body`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        body_html: html,
-        body_visual: JSON.stringify(blocks)
-      })
-    });
-    const d = await r.json();
+    const d = await persistDesign();
     if(d.ok) {
-      showToast('✓ HTML guardado en la campaña', 'green');
+      showToast('✓ Guardado', 'green');
+      markSaved();
     } else {
-      showToast('Error al guardar: ' + d.error, 'red');
+      showToast('Error al guardar: ' + (d.error||''), 'red');
     }
   } catch(e) {
     showToast('Error de conexión', 'red');
   }
 }
 
-async function loadFromCampaign() {
+async function saveAndExit() {
+  if(!blocks.length) { showToast('Agregá al menos un bloque antes de guardar', 'yellow'); return; }
+  try {
+    const d = await persistDesign();
+    if(d.ok) {
+      showToast('✓ Guardado — volviendo a la campaña…', 'green');
+      setTimeout(() => { window.location.href = `/campaign/${CAMPAIGN_ID}`; }, 600);
+    } else {
+      showToast('Error al guardar: ' + (d.error||''), 'red');
+    }
+  } catch(e) {
+    showToast('Error de conexión', 'red');
+  }
+}
+
+// ── Autoload — al abrir el editor, recupera el último diseño guardado ──
+async function autoLoadDesign() {
   try {
     const r = await fetch(`/api/campaign/${CAMPAIGN_ID}/body`);
     const d = await r.json();
-    if(d.visual) {
-      if(!confirm('¿Cargar el diseño guardado? Se perderá el diseño actual.')) return;
-      blocks = JSON.parse(d.visual);
-      selectedId = null;
-      renderCanvas();
-      renderProps();
-      showToast('Diseño cargado', 'green');
-    } else {
-      showToast('No hay diseño visual guardado', 'yellow');
+    if(d.ok && d.visual) {
+      const parsed = JSON.parse(d.visual);
+      if(Array.isArray(parsed) && parsed.length) {
+        blocks = parsed;
+        history = []; historyIdx = -1;
+        pushHistory();
+        renderCanvas();
+        renderProps();
+        markSaved();
+      }
     }
   } catch(e) {
-    showToast('Error al cargar', 'red');
+    // sin diseño previo — empieza en blanco, no es un error
   }
 }
+
+// ── Autosave indicator ────────────────────────────────────
+function markSaved() {
+  const el = document.getElementById('autosave-indicator');
+  if(el) el.textContent = '✓ Guardado ' + new Date().toLocaleTimeString('es',{hour:'2-digit',minute:'2-digit'});
+}
+function markUnsaved() {
+  const el = document.getElementById('autosave-indicator');
+  if(el) el.textContent = '● Cambios sin guardar';
+}
+
+// ── Templates ──────────────────────────────────────────────
+function openTemplatesModal() {
+  const modal = document.getElementById('ve-templates-modal');
+  const list  = document.getElementById('ve-templates-list');
+  list.innerHTML = '<div class="text-muted text-sm">Cargando…</div>';
+  modal.style.display = 'flex';
+
+  fetch('/api/templates').then(r=>r.json()).then(templates => {
+    if(!templates.length) {
+      list.innerHTML = '<div class="text-muted text-sm">No hay plantillas guardadas todavía.<br>Usá "💼 Guardar como plantilla" para crear la primera.</div>';
+      return;
+    }
+    list.innerHTML = templates.map(t => `
+      <div style="display:flex;align-items:center;gap:8px;padding:10px;border:1px solid #2a2a2a;border-radius:6px;margin-bottom:8px">
+        <div style="flex:1">
+          <div style="font-size:13px;color:#fff;font-weight:600">${escHtml(t.name)}</div>
+          <div style="font-size:11px;color:#666">${fmtDate(t.created_at)}</div>
+        </div>
+        <button class="prop-btn" style="width:auto;padding:6px 12px;margin:0;background:#0ea5e9;border-color:#0ea5e9;color:#fff" onclick="loadTemplate(${t.id})">Usar</button>
+        <button class="prop-btn" style="width:auto;padding:6px 10px;margin:0;border-color:#ef4444;color:#ef4444" onclick="deleteTemplate(${t.id})">🗑</button>
+      </div>
+    `).join('');
+  }).catch(()=>{
+    list.innerHTML = '<div class="text-sm" style="color:#ef4444">Error al cargar plantillas</div>';
+  });
+}
+
+function closeTemplatesModal() {
+  document.getElementById('ve-templates-modal').style.display = 'none';
+}
+
+async function loadTemplate(tid) {
+  if(blocks.length && !confirm('¿Reemplazar el diseño actual con esta plantilla?')) return;
+  try {
+    const r = await fetch(`/api/templates/${tid}`);
+    const d = await r.json();
+    if(!d.ok) { showToast('Error al cargar plantilla', 'red'); return; }
+    pushHistory();
+    blocks = JSON.parse(d.blocks_json);
+    selectedId = null;
+    renderCanvas();
+    renderProps();
+    markUnsaved();
+    closeTemplatesModal();
+    showToast(`Plantilla "${d.name}" cargada ✓`, 'green');
+  } catch(e) {
+    showToast('Error al cargar plantilla', 'red');
+  }
+}
+
+async function deleteTemplate(tid) {
+  if(!confirm('¿Eliminar esta plantilla?')) return;
+  await fetch(`/api/templates/${tid}`, { method: 'DELETE' });
+  openTemplatesModal(); // refresh list
+}
+
+async function saveAsTemplate() {
+  if(!blocks.length) { showToast('Agregá al menos un bloque primero', 'yellow'); return; }
+  const name = prompt('Nombre de la plantilla:', '{{ campaign[1] }}');
+  if(!name || !name.trim()) return;
+  try {
+    const r = await fetch('/api/templates', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name: name.trim(), blocks_json: JSON.stringify(blocks) })
+    });
+    const d = await r.json();
+    if(d.ok) showToast(`✓ Plantilla "${name.trim()}" guardada`, 'green');
+    else showToast('Error: ' + (d.error||''), 'red');
+  } catch(e) {
+    showToast('Error al guardar plantilla', 'red');
+  }
+}
+
+// Close templates modal on backdrop click
+document.getElementById('ve-templates-modal').addEventListener('click', e => {
+  if(e.target.id === 've-templates-modal') closeTemplatesModal();
+});
 
 // ── Toast ────────────────────────────────────────────────
 function showToast(msg, color='green') {
   const t = document.createElement('div');
   t.textContent = msg;
-  const colors = {green:'#16a34a',red:'#dc2626',yellow:'#d97706'};
+  const colors = {green:'#16a34a', red:'#dc2626', yellow:'#d97706'};
   Object.assign(t.style, {
-    position:'fixed',bottom:'24px',left:'50%',transform:'translateX(-50%)',
+    position:'fixed', bottom:'24px', left:'50%', transform:'translateX(-50%)',
     background: colors[color]||colors.green, color:'#fff',
-    padding:'10px 20px',borderRadius:'8px',fontSize:'13px',fontWeight:'600',
-    zIndex:'9999',boxShadow:'0 4px 16px rgba(0,0,0,.4)',
+    padding:'10px 20px', borderRadius:'8px', fontSize:'13px', fontWeight:'600',
+    zIndex:'9999', boxShadow:'0 4px 16px rgba(0,0,0,.4)',
     transition:'opacity .3s'
   });
   document.body.appendChild(t);
   setTimeout(() => { t.style.opacity='0'; setTimeout(()=>t.remove(),300); }, 2500);
 }
 
-// ── Drag from Palette ────────────────────────────────────
+// ── Palette: drag AND click-to-add ───────────────────────
 document.querySelectorAll('.palette-block').forEach(el => {
   el.addEventListener('dragstart', e => {
     dragType = el.dataset.type;
@@ -1079,11 +1304,17 @@ document.querySelectorAll('.palette-block').forEach(el => {
     el.classList.add('dragging');
   });
   el.addEventListener('dragend', () => el.classList.remove('dragging'));
+
+  // Clic = agregar al final (método principal, más confiable que drag&drop)
+  el.addEventListener('click', () => {
+    addBlock(el.dataset.type, blocks.length);
+    markUnsaved();
+  });
 });
 
 // Click canvas deselects
 document.getElementById('ve-canvas-wrap').addEventListener('click', e => {
-  if(e.target.id === 've-canvas-wrap' || e.target.id === 've-canvas') {
+  if(e.target.id === 've-canvas-wrap' || e.target.id === 've-canvas' || e.target.id === 'canvas-empty') {
     selectedId = null;
     renderCanvas();
     renderProps();
@@ -1095,16 +1326,20 @@ document.getElementById('ve-preview-modal').addEventListener('click', e => {
   if(e.target.id === 've-preview-modal') closePreview();
 });
 
-// ESC closes preview
+// ESC closes modals, Ctrl+Z/Y undo/redo, Ctrl+S guarda
 document.addEventListener('keydown', e => {
-  if(e.key === 'Escape') closePreview();
+  if(e.key === 'Escape') { closePreview(); closeTemplatesModal(); }
+  const tag = (e.target.tagName||'').toLowerCase();
+  if(tag === 'input' || tag === 'textarea') return; // no interferir mientras se escribe
   if((e.ctrlKey||e.metaKey) && e.key==='z') { e.preventDefault(); undo(); }
   if((e.ctrlKey||e.metaKey) && (e.key==='y'||(e.shiftKey&&e.key==='z'))) { e.preventDefault(); redo(); }
+  if((e.ctrlKey||e.metaKey) && e.key==='s') { e.preventDefault(); saveAndStay(); }
 });
 
 // ── Init ─────────────────────────────────────────────────
 pushHistory();
 renderCanvas();
 renderProps();
+autoLoadDesign();
 </script>
 {% endblock %}

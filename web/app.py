@@ -13,7 +13,7 @@ Cambios  :
 
 VERSION = "5.0.0"
 
-import os, re, sys, logging, functools
+import os, re, sys, logging, functools, base64, uuid
 from flask import (Flask, render_template, request, redirect,
                    url_for, session, jsonify, abort, Response)
 
@@ -32,6 +32,11 @@ log = logging.getLogger(__name__)
 # ─── App ──────────────────────────────────────────────────
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "changeme-in-prod")
+
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "static", "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+ALLOWED_IMG_EXT = {"png","jpg","jpeg","gif","webp"}
+MAX_IMG_BYTES = 2 * 1024 * 1024  # 2 MB
 
 # ─── Template globals ─────────────────────────────────────
 @app.context_processor
@@ -134,7 +139,7 @@ def campaign_new():
                 c.execute(f"INSERT INTO campaigns (name,subject,html_body,text_body) VALUES ({P},{P},{P},{P})",
                           (name, subject, "", ""))
                 cid = c.lastrowid
-        return redirect(url_for("campaign_edit", campaign_id=cid))
+        return redirect(url_for("visual_editor", campaign_id=cid))
     return render_template("editor.html", campaign=None, stats=None,
                            active_id=get_active_campaign_id())
 
@@ -232,6 +237,92 @@ def api_get_body(campaign_id):
     if not row:
         return jsonify({"ok": False, "error": "Not found"}), 404
     return jsonify({"ok": True, "html": row[0] or "", "visual": row[1] or ""})
+
+@app.route("/api/templates")
+@login_required
+def api_templates_list():
+    with get_conn_dict() as conn:
+        c = conn.cursor()
+        c.execute("SELECT id, name, created_at FROM templates ORDER BY created_at DESC")
+        rows = c.fetchall()
+    return jsonify([dict(r) for r in rows])
+
+@app.route("/api/templates/<int:tid>")
+@login_required
+def api_templates_get(tid):
+    P = ph()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"SELECT name, blocks_json FROM templates WHERE id={P}", (tid,))
+        row = c.fetchone()
+    if not row:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    return jsonify({"ok": True, "name": row[0], "blocks_json": row[1]})
+
+@app.route("/api/templates", methods=["POST"])
+@login_required
+def api_templates_save():
+    d = request.get_json() or {}
+    name = (d.get("name") or "").strip()
+    blocks_json = d.get("blocks_json", "")
+    if not name or not blocks_json:
+        return jsonify({"ok": False, "error": "Nombre y diseño son requeridos"}), 400
+    P = ph()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"INSERT INTO templates (name, blocks_json) VALUES ({P},{P})", (name, blocks_json))
+    return jsonify({"ok": True})
+
+@app.route("/api/templates/<int:tid>", methods=["DELETE"])
+@login_required
+def api_templates_delete(tid):
+    P = ph()
+    with get_conn() as conn:
+        c = conn.cursor()
+        c.execute(f"DELETE FROM templates WHERE id={P}", (tid,))
+    return jsonify({"ok": True})
+
+
+@login_required
+def api_upload_image():
+    """
+    Recibe { filename, data_url } (data_url = 'data:image/png;base64,....')
+    Guarda en web/static/uploads/ y devuelve la URL pública.
+
+    AVISO: en Render free tier el disco es efímero — el archivo se
+    pierde si el servicio se reinicia o redeploya. Para algo
+    persistente conviene un bucket externo (R2, Cloudinary, etc.).
+    """
+    d = request.get_json() or {}
+    data_url = d.get("data_url", "")
+    filename = d.get("filename", "image.png")
+
+    m = re.match(r"^data:image/(\w+);base64,(.+)$", data_url)
+    if not m:
+        return jsonify({"ok": False, "error": "Formato de imagen inválido"}), 400
+
+    ext = m.group(1).lower()
+    if ext == "jpeg": ext = "jpg"
+    if ext not in ALLOWED_IMG_EXT:
+        return jsonify({"ok": False, "error": f"Extensión no permitida: {ext}"}), 400
+
+    try:
+        raw = base64.b64decode(m.group(2))
+    except Exception:
+        return jsonify({"ok": False, "error": "No se pudo decodificar la imagen"}), 400
+
+    if len(raw) > MAX_IMG_BYTES:
+        return jsonify({"ok": False, "error": "Imagen demasiado grande (máx 2MB)"}), 400
+
+    safe_name = f"{uuid.uuid4().hex}.{ext}"
+    path = os.path.join(UPLOAD_DIR, safe_name)
+    with open(path, "wb") as f:
+        f.write(raw)
+
+    app_url = get_setting("app_url", "").rstrip("/")
+    url = f"{app_url}/static/uploads/{safe_name}" if app_url else f"/static/uploads/{safe_name}"
+    return jsonify({"ok": True, "url": url})
+
 
 # ══════════════════════════════════════════════════════════
 #  EMAIL LIST
